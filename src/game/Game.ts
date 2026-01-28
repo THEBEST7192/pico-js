@@ -5,7 +5,7 @@ const { Engine, Render, Runner, Bodies, Composite, Events } = Matter;
 
 let engine: Matter.Engine;
 let runner: Matter.Runner;
-let players: Player[] = [];
+let playerSlots: Array<Player | null> = [null, null, null, null];
 let canvas: HTMLCanvasElement;
 let ctx: CanvasRenderingContext2D;
 
@@ -39,33 +39,42 @@ export function initGame(canvasElement: HTMLCanvasElement) {
 
   // Handle Gamepad connection
   const handleGamepadConnected = (e: GamepadEvent) => {
-    addPlayer(e.gamepad.index);
+    addPlayer(e.gamepad);
   };
 
   const handleGamepadDisconnected = (e: GamepadEvent) => {
     console.log(`Player ${e.gamepad.index} disconnected!`);
-    const index = players.findIndex(p => p.gamepadIndex === e.gamepad.index);
-    if (index !== -1) {
-      Composite.remove(engine.world, players[index].body);
-      players.splice(index, 1);
+    let slot = playerSlots.findIndex(p => p?.gamepadIndex === e.gamepad.index);
+    if (slot === -1) {
+      slot = playerSlots.findIndex(p => p?.gamepadId === e.gamepad.id);
     }
+    if (slot === -1) return;
+
+    const existing = playerSlots[slot];
+    if (!existing) return;
+
+    Composite.remove(engine.world, existing.body);
+    playerSlots[slot] = null;
   };
 
-  const addPlayer = (gamepadIndex: number) => {
-    if (players.find(p => p.gamepadIndex === gamepadIndex)) return;
-    
-    console.log(`Player ${gamepadIndex} connected!`);
-    const playerIndex = players.length;
-    if (playerIndex < 4) {
-      const newPlayer = new Player(
-        gamepadIndex, 
-        100 + playerIndex * 150, 
-        canvas.height - 100, 
-        PLAYER_COLORS[playerIndex]
-      );
-      players.push(newPlayer);
-      Composite.add(engine.world, newPlayer.body);
-    }
+  const addPlayer = (gp: Gamepad) => {
+    if (playerSlots.some(p => p?.gamepadIndex === gp.index)) return;
+
+    const firstEmptySlot = playerSlots.findIndex(p => p === null);
+    const slot = firstEmptySlot;
+    if (slot === -1 || slot === undefined || slot < 0 || slot > 3) return;
+    if (playerSlots[slot]) return;
+
+    console.log(`Player ${gp.index} connected!`);
+    const newPlayer = new Player(
+      gp.index,
+      gp.id,
+      100 + slot * 150,
+      canvas.height - 100,
+      PLAYER_COLORS[slot]
+    );
+    playerSlots[slot] = newPlayer;
+    Composite.add(engine.world, newPlayer.body);
   };
 
   window.addEventListener("gamepadconnected", handleGamepadConnected);
@@ -74,7 +83,7 @@ export function initGame(canvasElement: HTMLCanvasElement) {
   // Initial check for already connected gamepads
   const initialGamepads = navigator.getGamepads();
   for (const gp of initialGamepads) {
-    if (gp) addPlayer(gp.index);
+    if (gp) addPlayer(gp);
   }
 
   // Game Loop
@@ -96,23 +105,51 @@ export function initGame(canvasElement: HTMLCanvasElement) {
     window.removeEventListener("gamepaddisconnected", handleGamepadDisconnected);
     Runner.stop(runner);
     Engine.clear(engine);
-    players = [];
+    playerSlots = [null, null, null, null];
   };
 }
 
 function updateInput() {
   const gamepads = navigator.getGamepads();
-  players.forEach(player => {
-    const gp = gamepads[player.gamepadIndex];
-    if (gp) {
-      player.handleInput(gp);
+  const usedIndices = new Set<number>();
+
+  for (const player of playerSlots) {
+    if (!player) continue;
+
+    const direct = gamepads[player.gamepadIndex];
+    if (direct && direct.id === player.gamepadId) {
+      usedIndices.add(direct.index);
+      player.handleInput(direct);
+      continue;
     }
-  });
+
+    const candidates = gamepads.filter(
+      (gp): gp is Gamepad => Boolean(gp) && gp.id === player.gamepadId && !usedIndices.has(gp.index)
+    );
+    if (candidates.length > 0) {
+      const best = candidates.reduce((prev, curr) => {
+        const prevDist = Math.abs(prev.index - player.gamepadIndex);
+        const currDist = Math.abs(curr.index - player.gamepadIndex);
+        return currDist < prevDist ? curr : prev;
+      });
+
+      player.gamepadIndex = best.index;
+      usedIndices.add(best.index);
+      player.handleInput(best);
+      continue;
+    }
+
+    if (direct && !usedIndices.has(direct.index)) {
+      usedIndices.add(direct.index);
+      player.handleInput(direct);
+    }
+  }
 }
 
 function checkGrounding() {
   // Simple grounding check using Matter.Query
-  players.forEach(player => {
+  playerSlots.forEach(player => {
+    if (!player) return;
     const bodies = Composite.allBodies(engine.world);
     const groundBodies = bodies.filter(b => b !== player.body);
     
@@ -150,5 +187,8 @@ function draw() {
   });
 
   // Draw players
-  players.forEach(player => player.draw(ctx));
+  playerSlots.forEach(player => {
+    if (!player) return;
+    player.draw(ctx);
+  });
 }

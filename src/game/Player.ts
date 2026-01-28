@@ -3,13 +3,15 @@ import Matter from 'matter-js';
 export class Player {
   public body: Matter.Body;
   public gamepadIndex: number;
+  public gamepadId: string;
   private color: string;
   private jumpPower = 12;
   private moveSpeed = 5;
   private isGrounded = false;
 
-  constructor(gamepadIndex: number, x: number, y: number, color: string) {
+  constructor(gamepadIndex: number, gamepadId: string, x: number, y: number, color: string) {
     this.gamepadIndex = gamepadIndex;
+    this.gamepadId = gamepadId;
     this.color = color;
 
     this.body = Matter.Bodies.rectangle(x, y, 40, 40, {
