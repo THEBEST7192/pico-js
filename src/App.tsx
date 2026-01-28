@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { initGame, type GameApi } from './game/Game';
+import { initGame, type EditorTool, type GameApi } from './game/Game';
 import './App.css';
 
 function App() {
@@ -7,6 +7,7 @@ function App() {
   const gameApiRef = useRef<GameApi | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const [editorEnabled, setEditorEnabled] = useState(false);
+  const [editorTool, setEditorTool] = useState<EditorTool>('platform');
 
   const downloadTextFile = (filename: string, text: string) => {
     const blob = new Blob([text], { type: 'application/json' });
@@ -41,6 +42,7 @@ function App() {
       const { destroy, api } = initGame(canvasRef.current);
       gameApiRef.current = api;
       setEditorEnabled(api.getEditorEnabled());
+      setEditorTool(api.getEditorTool());
       return () => {
         gameApiRef.current = null;
         destroy();
@@ -50,72 +52,138 @@ function App() {
 
   return (
     <div className="game-container">
-      <div className="hud">
-        <button
-          type="button"
-          onClick={() => {
-            const api = gameApiRef.current;
-            if (!api) return;
-            setEditorEnabled(api.toggleEditor());
-          }}
-        >
-          Editor: {editorEnabled ? 'On' : 'Off'}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            importInputRef.current?.click();
-          }}
-        >
-          Import
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const api = gameApiRef.current;
-            if (!api) return;
-            const json = window.prompt('Paste Level JSON');
-            if (!json) return;
-            api.importLevel(json);
-          }}
-        >
-          Paste JSON
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const api = gameApiRef.current;
-            if (!api) return;
-            gameApiRef.current?.clearLevel();
-          }}
-        >
-          Clear
-        </button>
-        <button
-          type="button"
-          onClick={async () => {
-            const api = gameApiRef.current;
-            if (!api) return;
-            try {
-              await copyToClipboard(api.exportLevel());
-            } catch {
-              downloadTextFile('level.json', api.exportLevel());
-            }
-          }}
-        >
-          Copy
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const api = gameApiRef.current;
-            if (!api) return;
-            downloadTextFile('level.json', api.exportLevel());
-          }}
-        >
-          Download
-        </button>
-      </div>
+      {editorEnabled && (
+        <div className="sidebar">
+          <div className="sidebar-title">Editor</div>
+          <div className="sidebar-section">
+            <button
+              type="button"
+              className={editorTool === 'platform' ? 'active' : undefined}
+              onClick={() => {
+                const api = gameApiRef.current;
+                if (!api) return;
+                setEditorTool(api.setEditorTool('platform'));
+              }}
+            >
+              Platform
+            </button>
+            <button
+              type="button"
+              className={editorTool === 'door' ? 'active' : undefined}
+              onClick={() => {
+                const api = gameApiRef.current;
+                if (!api) return;
+                setEditorTool(api.setEditorTool('door'));
+              }}
+            >
+              Door
+            </button>
+            <button
+              type="button"
+              className={editorTool === 'spawn' ? 'active' : undefined}
+              onClick={() => {
+                const api = gameApiRef.current;
+                if (!api) return;
+                setEditorTool(api.setEditorTool('spawn'));
+              }}
+            >
+              Spawn
+            </button>
+            <button
+              type="button"
+              className={editorTool === 'spike' ? 'active' : undefined}
+              onClick={() => {
+                const api = gameApiRef.current;
+                if (!api) return;
+                setEditorTool(api.setEditorTool('spike'));
+              }}
+            >
+              Spikes
+            </button>
+            <button
+              type="button"
+              className={editorTool === 'erase' ? 'active' : undefined}
+              onClick={() => {
+                const api = gameApiRef.current;
+                if (!api) return;
+                setEditorTool(api.setEditorTool('erase'));
+              }}
+            >
+              Erase
+            </button>
+          </div>
+          <div className="sidebar-title">Level</div>
+          <div className="sidebar-section">
+            <button
+              type="button"
+              onClick={() => {
+                importInputRef.current?.click();
+              }}
+            >
+              Import File
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const api = gameApiRef.current;
+                if (!api) return;
+                const json = window.prompt('Paste Level JSON');
+                if (!json) return;
+                api.importLevel(json);
+              }}
+            >
+              Paste JSON
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const api = gameApiRef.current;
+                if (!api) return;
+                try {
+                  await copyToClipboard(api.exportLevel());
+                } catch {
+                  downloadTextFile('level.json', api.exportLevel());
+                }
+              }}
+            >
+              Copy JSON
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const api = gameApiRef.current;
+                if (!api) return;
+                downloadTextFile('level.json', api.exportLevel());
+              }}
+            >
+              Download JSON
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                gameApiRef.current?.clearLevel();
+              }}
+            >
+              Clear Level
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="stage">
+        <div className="hud">
+          <button
+            type="button"
+            onClick={() => {
+              const api = gameApiRef.current;
+              if (!api) return;
+              const enabled = api.toggleEditor();
+              setEditorEnabled(enabled);
+              if (enabled) setEditorTool(api.getEditorTool());
+            }}
+          >
+            Editor: {editorEnabled ? 'On' : 'Off'}
+          </button>
+        </div>
       <input
         ref={importInputRef}
         type="file"
@@ -130,11 +198,12 @@ function App() {
           api.importLevel(json);
         }}
       />
-      <canvas ref={canvasRef} />
-      <div className="instructions">
-        {editorEnabled
-          ? 'EDITOR: Drag to place, right-click to delete.'
-          : 'Connect up to 4 gamepads to play.'}
+        <canvas ref={canvasRef} />
+        <div className="instructions">
+          {editorEnabled
+            ? `EDITOR: Tool=${editorTool}. Drag to place (spawn: click). Right-click to delete.`
+            : 'Connect up to 4 gamepads to play. Get everyone to the door.'}
+        </div>
       </div>
     </div>
   );
