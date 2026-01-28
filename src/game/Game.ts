@@ -290,7 +290,7 @@ function updateInput() {
     }
 
     const candidates = gamepads.filter(
-      (gp): gp is Gamepad => Boolean(gp) && gp.id === player.gamepadId && !usedIndices.has(gp.index)
+      (gp): gp is Gamepad => gp !== null && gp.id === player.gamepadId && !usedIndices.has(gp.index)
     );
     if (candidates.length > 0) {
       const best = candidates.reduce((prev, curr) => {
