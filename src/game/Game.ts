@@ -318,7 +318,7 @@ function checkGrounding() {
     if (!player) return;
     const bodies = Composite.allBodies(engine.world);
     const groundBodies = bodies.filter(
-      b => b !== player.body && (b.label === 'ground' || b.label === 'platform')
+      b => b !== player.body && (b.label === 'ground' || b.label === 'platform' || b.label === 'player')
     );
     
     // Check slightly below the player
@@ -326,8 +326,21 @@ function checkGrounding() {
       min: { x: player.body.position.x - 18, y: player.body.position.y + 21 },
       max: { x: player.body.position.x + 18, y: player.body.position.y + 25 }
     }).length > 0;
+
+    const otherPlayers = playerSlots.filter((p): p is Player => Boolean(p) && p !== player);
+    const playerContacts = Matter.Query.collides(player.body, otherPlayers.map(p => p.body));
+    const hasPlayerAbove = playerContacts.some(c => {
+      const other = c.bodyA === player.body ? c.bodyB : c.bodyA;
+      return other.label === 'player' && other.position.y < player.body.position.y - 5;
+    });
+
+    const support = playerContacts
+      .map(c => (c.bodyA === player.body ? c.bodyB : c.bodyA))
+      .filter(b => b.label === 'player' && b.position.y > player.body.position.y + 5)
+      .sort((a, b) => b.position.y - a.position.y)[0];
+    const carryX = support ? support.velocity.x : 0;
     
-    player.update(isGrounded);
+    player.update(isGrounded, isGrounded && !hasPlayerAbove, carryX);
   });
 }
 

@@ -7,7 +7,8 @@ export class Player {
   private color: string;
   private jumpPower = 12;
   private moveSpeed = 5;
-  private isGrounded = false;
+  private canJump = false;
+  private carryX = 0;
 
   constructor(gamepadIndex: number, gamepadId: string, x: number, y: number, color: string) {
     this.gamepadIndex = gamepadIndex;
@@ -27,32 +28,26 @@ export class Player {
   handleInput(gp: Gamepad) {
     // Movement (Left Stick X)
     const moveX = gp.axes[0];
-    if (Math.abs(moveX) > 0.2) {
-      Matter.Body.setVelocity(this.body, { 
-        x: moveX * this.moveSpeed, 
-        y: this.body.velocity.y 
-      });
-    } else {
-      // Stop horizontal movement when stick is released
-      Matter.Body.setVelocity(this.body, { 
-        x: 0, 
-        y: this.body.velocity.y 
-      });
-    }
+    const inputX = Math.abs(moveX) > 0.2 ? moveX * this.moveSpeed : 0;
+    Matter.Body.setVelocity(this.body, {
+      x: this.carryX + inputX,
+      y: this.body.velocity.y
+    });
 
     // Jump ("A" / "X" button) (Xbox/PS)
     const jumpButton = gp.buttons[0];
-    if (jumpButton.pressed && this.isGrounded) {
+    if (jumpButton.pressed && this.canJump) {
       Matter.Body.setVelocity(this.body, { 
         x: this.body.velocity.x, 
         y: -this.jumpPower 
       });
-      this.isGrounded = false;
+      this.canJump = false;
     }
   }
 
-  update(isGrounded: boolean) {
-    this.isGrounded = isGrounded;
+  update(isGrounded: boolean, canJump: boolean = isGrounded, carryX: number = 0) {
+    this.canJump = canJump;
+    this.carryX = carryX;
   }
 
   draw(ctx: CanvasRenderingContext2D) {
