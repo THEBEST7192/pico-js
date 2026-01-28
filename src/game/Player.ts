@@ -16,8 +16,8 @@ export class Player {
     this.color = color;
 
     this.body = Matter.Bodies.rectangle(x, y, 40, 40, {
-      friction: 0.1,
-      frictionStatic: 0.5,
+      friction: 0,
+      frictionStatic: 0,
       frictionAir: 0.05,
       inertia: Infinity, // Prevent rotation
       restitution: 0,    // No bounce

@@ -77,10 +77,30 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
   // Add walls
   const wallThickness = 60;
   const groundThickness = 40;
-  const ground = Bodies.rectangle(width / 2, height - groundThickness / 2, width + 10, groundThickness, { isStatic: true, label: 'ground' });
-  const leftWall = Bodies.rectangle(wallThickness / 2 - 20, height / 2, wallThickness, height, { isStatic: true, label: 'ground' });
-  const rightWall = Bodies.rectangle(width - wallThickness / 2 + 20, height / 2, wallThickness, height, { isStatic: true, label: 'ground' });
-  const ceiling = Bodies.rectangle(width / 2, wallThickness / 2 - 20, width + 10, wallThickness, { isStatic: true, label: 'ground' });
+  const ground = Bodies.rectangle(width / 2, height - groundThickness / 2, width + 10, groundThickness, {
+    isStatic: true,
+    label: 'ground',
+    friction: 0,
+    frictionStatic: 0
+  });
+  const leftWall = Bodies.rectangle(wallThickness / 2 - 20, height / 2, wallThickness, height, {
+    isStatic: true,
+    label: 'ground',
+    friction: 0,
+    frictionStatic: 0
+  });
+  const rightWall = Bodies.rectangle(width - wallThickness / 2 + 20, height / 2, wallThickness, height, {
+    isStatic: true,
+    label: 'ground',
+    friction: 0,
+    frictionStatic: 0
+  });
+  const ceiling = Bodies.rectangle(width / 2, wallThickness / 2 - 20, width + 10, wallThickness, {
+    isStatic: true,
+    label: 'ground',
+    friction: 0,
+    frictionStatic: 0
+  });
   
   Composite.add(engine.world, [ground, leftWall, rightWall, ceiling]);
 
