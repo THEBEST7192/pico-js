@@ -1,7 +1,7 @@
 import Matter from 'matter-js';
 import { Player } from './Player';
 
-const { Engine, Render, Runner, Bodies, Composite, Events } = Matter;
+const { Engine, Runner, Bodies, Composite } = Matter;
 
 let engine: Matter.Engine;
 let runner: Matter.Runner;
@@ -10,8 +10,35 @@ let canvas: HTMLCanvasElement;
 let ctx: CanvasRenderingContext2D;
 
 const PLAYER_COLORS = ['#ff4d4d', '#4dff4d', '#4d4dff', '#ffff4d'];
+const LEVEL_STORAGE_KEY = 'pico_level_v1';
+const GRID_SIZE = 20;
 
-export function initGame(canvasElement: HTMLCanvasElement) {
+type LevelRect = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+export type GameApi = {
+  toggleEditor: () => boolean;
+  setEditorEnabled: (enabled: boolean) => boolean;
+  getEditorEnabled: () => boolean;
+  exportLevel: () => string;
+  importLevel: (json: string) => void;
+  saveLevel: () => void;
+  loadLevel: () => void;
+  clearLevel: () => void;
+};
+
+let editorEnabled = false;
+let levelRects: LevelRect[] = [];
+let platformBodies: Matter.Body[] = [];
+let dragStart: { x: number; y: number } | null = null;
+let dragCurrent: { x: number; y: number } | null = null;
+let mouseDownButton: number | null = null;
+
+export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => void; api: GameApi } {
   canvas = canvasElement;
   ctx = canvas.getContext('2d')!;
   
@@ -36,6 +63,8 @@ export function initGame(canvasElement: HTMLCanvasElement) {
   const ceiling = Bodies.rectangle(width / 2, wallThickness / 2 - 20, width + 10, wallThickness, { isStatic: true, label: 'ground' });
   
   Composite.add(engine.world, [ground, leftWall, rightWall, ceiling]);
+
+  loadLevelFromStorage();
 
   // Handle Gamepad connection
   const handleGamepadConnected = (e: GamepadEvent) => {
@@ -86,6 +115,87 @@ export function initGame(canvasElement: HTMLCanvasElement) {
     if (gp) addPlayer(gp);
   }
 
+  const handleMouseDown = (e: MouseEvent) => {
+    if (!editorEnabled) return;
+    mouseDownButton = e.button;
+    if (e.button !== 0) return;
+    const p = toCanvasPoint(e);
+    dragStart = p;
+    dragCurrent = p;
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!editorEnabled) return;
+    if (mouseDownButton !== 0) return;
+    if (!dragStart) return;
+    dragCurrent = toCanvasPoint(e);
+  };
+
+  const handleMouseUp = (e: MouseEvent) => {
+    if (!editorEnabled) return;
+    if (mouseDownButton !== 0) {
+      mouseDownButton = null;
+      return;
+    }
+    mouseDownButton = null;
+    if (!dragStart || !dragCurrent) {
+      dragStart = null;
+      dragCurrent = null;
+      return;
+    }
+
+    const rect = normalizeRect(dragStart, dragCurrent);
+    dragStart = null;
+    dragCurrent = null;
+
+    if (rect.w < GRID_SIZE || rect.h < GRID_SIZE) return;
+    addPlatform(rect);
+  };
+
+  const handleContextMenu = (e: MouseEvent) => {
+    if (!editorEnabled) return;
+    e.preventDefault();
+    const p = toCanvasPoint(e);
+    const bodies = Matter.Query.point(platformBodies, p);
+    if (bodies.length === 0) return;
+    const body = bodies[0];
+    removePlatformBody(body);
+  };
+
+  canvas.addEventListener('mousedown', handleMouseDown);
+  canvas.addEventListener('mousemove', handleMouseMove);
+  canvas.addEventListener('mouseup', handleMouseUp);
+  canvas.addEventListener('contextmenu', handleContextMenu);
+
+  const api: GameApi = {
+    toggleEditor: () => {
+      editorEnabled = !editorEnabled;
+      dragStart = null;
+      dragCurrent = null;
+      return editorEnabled;
+    },
+    setEditorEnabled: (enabled: boolean) => {
+      editorEnabled = enabled;
+      dragStart = null;
+      dragCurrent = null;
+      return editorEnabled;
+    },
+    getEditorEnabled: () => editorEnabled,
+    exportLevel: () => JSON.stringify(levelRects),
+    importLevel: (json: string) => {
+      loadLevelFromJson(json);
+    },
+    saveLevel: () => {
+      localStorage.setItem(LEVEL_STORAGE_KEY, JSON.stringify(levelRects));
+    },
+    loadLevel: () => {
+      loadLevelFromStorage();
+    },
+    clearLevel: () => {
+      clearPlatforms();
+    }
+  };
+
   // Game Loop
   const update = () => {
     updateInput();
@@ -100,13 +210,19 @@ export function initGame(canvasElement: HTMLCanvasElement) {
   requestAnimationFrame(update);
 
   // Cleanup function
-  return () => {
+  const destroy = () => {
     window.removeEventListener("gamepadconnected", handleGamepadConnected);
     window.removeEventListener("gamepaddisconnected", handleGamepadDisconnected);
+    canvas.removeEventListener('mousedown', handleMouseDown);
+    canvas.removeEventListener('mousemove', handleMouseMove);
+    canvas.removeEventListener('mouseup', handleMouseUp);
+    canvas.removeEventListener('contextmenu', handleContextMenu);
     Runner.stop(runner);
     Engine.clear(engine);
     playerSlots = [null, null, null, null];
   };
+
+  return { destroy, api };
 }
 
 function updateInput() {
@@ -167,14 +283,12 @@ function draw() {
   // Clear canvas
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Draw static bodies (walls)
+  // Draw static bodies (walls/platforms)
   const bodies = Composite.allBodies(engine.world);
-  ctx.fillStyle = '#333';
   bodies.forEach(body => {
     if (body.isStatic) {
-      const { x, y } = body.position;
-      // Assume they are rectangles for simplicity in this clone
       if (body.vertices) {
+        ctx.fillStyle = body.label === 'platform' ? '#555' : '#333';
         ctx.beginPath();
         ctx.moveTo(body.vertices[0].x, body.vertices[0].y);
         for (let i = 1; i < body.vertices.length; i++) {
@@ -191,4 +305,113 @@ function draw() {
     if (!player) return;
     player.draw(ctx);
   });
+
+  if (editorEnabled) {
+    if (dragStart && dragCurrent) {
+      const r = normalizeRect(dragStart, dragCurrent);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(r.x, r.y, r.w, r.h);
+    }
+  }
+}
+
+function toCanvasPoint(e: MouseEvent): { x: number; y: number } {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (e.clientX - rect.left) * scaleX;
+  const y = (e.clientY - rect.top) * scaleY;
+  return { x: snap(x), y: snap(y) };
+}
+
+function snap(value: number): number {
+  return Math.round(value / GRID_SIZE) * GRID_SIZE;
+}
+
+function normalizeRect(a: { x: number; y: number }, b: { x: number; y: number }): LevelRect {
+  const x1 = Math.min(a.x, b.x);
+  const y1 = Math.min(a.y, b.y);
+  const x2 = Math.max(a.x, b.x);
+  const y2 = Math.max(a.y, b.y);
+  return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+}
+
+function addPlatform(rect: LevelRect) {
+  const body = Bodies.rectangle(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h, {
+    isStatic: true,
+    label: 'platform'
+  });
+  levelRects.push(rect);
+  platformBodies.push(body);
+  Composite.add(engine.world, body);
+  localStorage.setItem(LEVEL_STORAGE_KEY, JSON.stringify(levelRects));
+}
+
+function removePlatformBody(body: Matter.Body) {
+  const idx = platformBodies.indexOf(body);
+  if (idx === -1) return;
+  Composite.remove(engine.world, body);
+  platformBodies.splice(idx, 1);
+  levelRects.splice(idx, 1);
+  localStorage.setItem(LEVEL_STORAGE_KEY, JSON.stringify(levelRects));
+}
+
+function clearPlatforms() {
+  for (const body of platformBodies) {
+    Composite.remove(engine.world, body);
+  }
+  platformBodies = [];
+  levelRects = [];
+  localStorage.removeItem(LEVEL_STORAGE_KEY);
+}
+
+function loadLevelFromStorage() {
+  const json = localStorage.getItem(LEVEL_STORAGE_KEY);
+  if (!json) return;
+  loadLevelFromJson(json);
+}
+
+function loadLevelFromJson(json: string) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return;
+  }
+
+  if (!Array.isArray(parsed)) return;
+  const next: LevelRect[] = [];
+  for (const item of parsed) {
+    if (!item || typeof item !== 'object') return;
+    const r = item as Partial<LevelRect>;
+    if (
+      typeof r.x !== 'number' ||
+      typeof r.y !== 'number' ||
+      typeof r.w !== 'number' ||
+      typeof r.h !== 'number'
+    ) {
+      return;
+    }
+    if (r.w <= 0 || r.h <= 0) return;
+    next.push({ x: r.x, y: r.y, w: r.w, h: r.h });
+  }
+
+  for (const body of platformBodies) {
+    Composite.remove(engine.world, body);
+  }
+  platformBodies = [];
+  levelRects = [];
+
+  for (const r of next) {
+    const body = Bodies.rectangle(r.x + r.w / 2, r.y + r.h / 2, r.w, r.h, {
+      isStatic: true,
+      label: 'platform'
+    });
+    levelRects.push(r);
+    platformBodies.push(body);
+    Composite.add(engine.world, body);
+  }
+
+  localStorage.setItem(LEVEL_STORAGE_KEY, JSON.stringify(levelRects));
 }
