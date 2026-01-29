@@ -856,6 +856,10 @@ function draw() {
           drawSpike(ctx, body);
           return;
         }
+        if (body.label === 'ground') {
+          drawPlatform(ctx, body);
+          return;
+        }
         if (body.label === 'platform') {
           drawPlatform(ctx, body);
           return;
