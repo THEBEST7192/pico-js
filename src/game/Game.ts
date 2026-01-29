@@ -663,6 +663,66 @@ function draw() {
   bodies.forEach(body => {
     if (body.isStatic || body.label === 'block') {
       if (body.vertices) {
+        if (body.label === 'key') {
+          const circleRadius = (body as Matter.Body & Partial<{ circleRadius: number }>).circleRadius;
+          const r = circleRadius !== undefined ? circleRadius : (body.bounds.max.x - body.bounds.min.x) / 2;
+          const cx = body.position.x;
+          const cy = body.position.y;
+          const bowR = Math.max(6, Math.round(r * 0.7));
+          const stemLen = Math.max(14, Math.round(r * 1.8));
+          const stemW = Math.max(4, Math.round(r * 0.5));
+          const startX = cx - stemLen / 2 + bowR - Math.round(stemW * 0.5);
+          ctx.fillStyle = '#fdd835';
+          ctx.fillRect(startX, cy - stemW / 2, stemLen, stemW);
+          const toothW = Math.max(3, Math.round(stemW * 0.6));
+          const toothH = Math.max(4, Math.round(stemW));
+          const endX = startX + stemLen - toothW;
+          ctx.fillRect(endX, cy + stemW / 2 - 1, toothW, toothH);
+          ctx.fillRect(endX - toothW - 3, cy + stemW / 2 - 1, toothW, Math.round(toothH * 0.7));
+          ctx.strokeStyle = '#bfa100';
+          ctx.strokeRect(startX, cy - stemW / 2, stemLen, stemW);
+          ctx.fillStyle = '#ffeb3b';
+          ctx.strokeStyle = '#bfa100';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(cx - stemLen / 2, cy, bowR, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.save();
+          ctx.globalCompositeOperation = 'destination-out';
+          ctx.beginPath();
+          ctx.arc(cx - stemLen / 2, cy, Math.round(bowR * 0.45), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+          return;
+        }
+        if (body.label === 'button') {
+          const idx = buttonBodies.indexOf(body);
+          const def = idx >= 0 ? buttonDefs[idx] : undefined;
+          const pressed = idx >= 0 ? Boolean(buttonPressed[idx]) : false;
+          const bx = def ? def.x : body.bounds.min.x;
+          const by = def ? def.y : body.bounds.min.y;
+          const bw = def ? def.w : body.bounds.max.x - body.bounds.min.x;
+          const bh = def ? def.h : body.bounds.max.y - body.bounds.min.y;
+          const baseW = bw;
+          const baseH = Math.max(8, Math.round(bh * 0.45));
+          const baseX = bx;
+          const baseY = by + bh - baseH;
+          ctx.fillStyle = '#ff9800';
+          ctx.fillRect(baseX, baseY, baseW, baseH);
+          const lift = pressed ? Math.round(bh * 0.25) : Math.round(bh * 0.1);
+          const topH = Math.max(8, Math.round(bh * 0.5 - (pressed ? 3 : 0)));
+          const topX = bx + 4;
+          const topY = by + lift;
+          ctx.fillStyle = pressed ? '#8b0000' : '#ff0000';
+          ctx.fillRect(topX, topY, bw - 8, topH);
+          ctx.strokeStyle = pressed ? '#660000' : '#990000';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(topX, topY, bw - 8, topH);
+          ctx.fillStyle = pressed ? '#b22222' : '#ff6b6b';
+          ctx.fillRect(topX + 3, topY + 3, bw - 12, 4);
+          return;
+        }
         if (body.label === 'door') {
           ctx.fillStyle = keyPoint && !doorUnlocked ? '#90a4ae' : levelCompleted ? '#00e676' : '#ffb300';
         } else if (body.label === 'key') {
@@ -673,10 +733,6 @@ function draw() {
           const idx = bridgeBodies.indexOf(body);
           const permanent = idx >= 0 ? Boolean(bridgeDefs[idx]?.permanent) : false;
           ctx.fillStyle = permanent ? '#7c4dff' : '#00bcd4';
-        } else if (body.label === 'button') {
-          const idx = buttonBodies.indexOf(body);
-          const pressed = idx >= 0 ? Boolean(buttonPressed[idx]) : false;
-          ctx.fillStyle = pressed ? '#8b0000' : '#ff0000';
         } else if (body.label === 'spike') {
           ctx.fillStyle = '#e53935';
         } else {
