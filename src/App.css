@@ -106,6 +106,12 @@ canvas {
   gap: 6px;
 }
 
+.bridge-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .block-settings-label {
   font-family: sans-serif;
   color: #ffffff;

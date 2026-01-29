@@ -27,6 +27,9 @@ type LevelConfig = {
 
 const CAMERA_SIZE: LevelConfig = { width: 960, height: 540 };
 
+type BridgeDef = LevelRect & { id: number; dx: number; dy: number; distance: number };
+type ButtonDef = LevelRect & { id: number; targetBridgeId: number | null };
+
 type LevelState = {
   config: LevelConfig;
   platforms: LevelRect[];
@@ -34,10 +37,12 @@ type LevelState = {
   spawn: { x: number; y: number } | null;
   key: { x: number; y: number } | null;
   blocks: Array<LevelRect & { required: number }>;
+  bridges: BridgeDef[];
+  buttons: ButtonDef[];
   spikes: LevelRect[];
 };
 
-export type EditorTool = 'platform' | 'door' | 'spawn' | 'key' | 'block' | 'spike' | 'erase';
+export type EditorTool = 'platform' | 'door' | 'spawn' | 'key' | 'block' | 'bridge' | 'button' | 'spike' | 'erase';
 
 export type GameApi = {
   toggleEditor: () => boolean;
@@ -49,6 +54,10 @@ export type GameApi = {
   getBlockRequired: () => number;
   setLevelSize: (width: number, height: number) => LevelConfig;
   getLevelSize: () => LevelConfig;
+  setBridgeMove: (dx: number, dy: number) => { dx: number; dy: number };
+  getBridgeMove: () => { dx: number; dy: number };
+  setBridgeDistance: (distance: number) => number;
+  getBridgeDistance: () => number;
   undo: () => boolean;
   redo: () => boolean;
   exportLevel: () => string;
@@ -77,6 +86,18 @@ let blockDefs: Array<LevelRect & { required: number }> = [];
 let blockBodies: Matter.Body[] = [];
 let blockPusherCounts: number[] = [];
 let blockRequired = 2;
+let bridgeDefs: BridgeDef[] = [];
+let bridgeBodies: Matter.Body[] = [];
+let bridgeActivated: boolean[] = [];
+let bridgeHomeCenters: Array<{ x: number; y: number }> = [];
+let bridgeCarryX: number[] = [];
+let buttonDefs: ButtonDef[] = [];
+let buttonBodies: Matter.Body[] = [];
+let buttonPressed: boolean[] = [];
+let buttonLinkingId: number | null = null;
+let nextEntityId = 1;
+let bridgeMove = { dx: 1, dy: 0 };
+let bridgeDistance = 200;
 let spikeRects: LevelRect[] = [];
 let spikeBodies: Matter.Body[] = [];
 let levelCompleted = false;
@@ -178,6 +199,10 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     }
     if (e.button !== 0) return;
     const p = toCanvasPoint(e);
+    if (editorTool === 'button') {
+      handleButtonClick(p);
+      return;
+    }
     if (editorTool === 'erase') {
       eraseAtPoint(p);
       return;
@@ -238,6 +263,10 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     }
     if (editorTool === 'block') {
       addBlock(rect, blockRequired);
+      return;
+    }
+    if (editorTool === 'bridge') {
+      addBridge(rect);
       return;
     }
     if (editorTool === 'spike') {
@@ -358,6 +387,7 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       dragCurrent = null;
       panLast = null;
       editorPanKeys.clear();
+      buttonLinkingId = null;
       return editorEnabled;
     },
     setEditorEnabled: (enabled: boolean) => {
@@ -366,6 +396,7 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       dragCurrent = null;
       panLast = null;
       editorPanKeys.clear();
+      buttonLinkingId = null;
       return editorEnabled;
     },
     getEditorEnabled: () => editorEnabled,
@@ -375,6 +406,7 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       dragCurrent = null;
       panLast = null;
       editorPanKeys.clear();
+      buttonLinkingId = null;
       return editorTool;
     },
     getEditorTool: () => editorTool,
@@ -394,6 +426,27 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       return levelConfig;
     },
     getLevelSize: () => levelConfig,
+    setBridgeMove: (dx: number, dy: number) => {
+      const nx = Math.round(dx);
+      const ny = Math.round(dy);
+      if (
+        (nx === 1 && ny === 0) ||
+        (nx === -1 && ny === 0) ||
+        (nx === 0 && ny === 1) ||
+        (nx === 0 && ny === -1)
+      ) {
+        bridgeMove = { dx: nx, dy: ny };
+      }
+      return bridgeMove;
+    },
+    getBridgeMove: () => bridgeMove,
+    setBridgeDistance: (distance: number) => {
+      if (!Number.isFinite(distance)) return bridgeDistance;
+      const next = snap(Math.max(0, Math.round(distance)));
+      bridgeDistance = next;
+      return bridgeDistance;
+    },
+    getBridgeDistance: () => bridgeDistance,
     undo: () => performUndo(),
     redo: () => performRedo(),
     exportLevel: () =>
@@ -405,6 +458,8 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
           spawn: spawnPoint,
           key: keyPoint,
           blocks: blockDefs,
+          bridges: bridgeDefs,
+          buttons: buttonDefs,
           spikes: spikeRects
         } satisfies LevelState
       ),
@@ -428,6 +483,8 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     checkGrounding();
     updateKey();
     updateBlocks();
+    updateButtons();
+    updateBridges();
     updateDoor();
     updateSpikes();
     updateCameraFollow();
@@ -547,7 +604,13 @@ function checkGrounding() {
     if (!player) return;
     const bodies = Composite.allBodies(engine.world);
     const groundBodies = bodies.filter(
-      b => b !== player.body && (b.label === 'ground' || b.label === 'platform' || b.label === 'player' || b.label === 'block')
+      b =>
+        b !== player.body &&
+        (b.label === 'ground' ||
+          b.label === 'platform' ||
+          b.label === 'player' ||
+          b.label === 'block' ||
+          b.label === 'bridge')
     );
     
     // Check slightly below the player
@@ -567,7 +630,11 @@ function checkGrounding() {
       .map(c => (c.bodyA === player.body ? c.bodyB : c.bodyA))
       .filter(b => b.label === 'player' && b.position.y > player.body.position.y + 5)
       .sort((a, b) => b.position.y - a.position.y)[0];
-    const carryX = support ? support.velocity.x : 0;
+    let carryX = support ? support.velocity.x : 0;
+    if (support?.label === 'bridge') {
+      const idx = bridgeBodies.indexOf(support);
+      carryX = idx >= 0 ? bridgeCarryX[idx] ?? 0 : 0;
+    }
     
     player.update(isGrounded, isGrounded && !hasPlayerAbove, carryX);
   });
@@ -593,6 +660,12 @@ function draw() {
           ctx.fillStyle = '#ffeb3b';
         } else if (body.label === 'block') {
           ctx.fillStyle = '#ff9800';
+        } else if (body.label === 'bridge') {
+          ctx.fillStyle = '#00bcd4';
+        } else if (body.label === 'button') {
+          const idx = buttonBodies.indexOf(body);
+          const pressed = idx >= 0 ? Boolean(buttonPressed[idx]) : false;
+          ctx.fillStyle = pressed ? '#8b0000' : '#ff0000';
         } else if (body.label === 'spike') {
           ctx.fillStyle = '#e53935';
         } else {
@@ -630,6 +703,33 @@ function draw() {
       }
     }
   });
+
+  if (editorEnabled) {
+    ctx.lineWidth = 2;
+    for (const b of buttonDefs) {
+      if (b.targetBridgeId === null) continue;
+      const bridge = bridgeDefs.find(br => br.id === b.targetBridgeId);
+      if (!bridge) continue;
+      const bx = b.x + b.w / 2;
+      const by = b.y + b.h / 2;
+      const tx = bridge.x + bridge.w / 2;
+      const ty = bridge.y + bridge.h / 2;
+      ctx.strokeStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+    }
+
+    if (buttonLinkingId !== null) {
+      const btn = buttonDefs.find(b => b.id === buttonLinkingId);
+      if (btn) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(btn.x + 2, btn.y + 2, btn.w - 4, btn.h - 4);
+      }
+    }
+  }
 
   playerSlots.forEach(player => {
     if (!player) return;
@@ -785,6 +885,113 @@ function addBlock(rect: LevelRect, required: number) {
   persistLevel();
 }
 
+function addBridge(rect: LevelRect) {
+  const dx = bridgeMove.dx;
+  const dy = bridgeMove.dy;
+  const id = nextEntityId;
+  nextEntityId += 1;
+  const distance = bridgeDistance;
+  const def: BridgeDef = { ...rect, id, dx, dy, distance };
+  const body = Bodies.rectangle(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h, {
+    isStatic: true,
+    label: 'bridge'
+  });
+  bridgeDefs.push(def);
+  bridgeBodies.push(body);
+  bridgeActivated.push(false);
+  bridgeHomeCenters.push({ x: body.position.x, y: body.position.y });
+  bridgeCarryX.push(0);
+  Composite.add(engine.world, body);
+  persistLevel();
+}
+
+function addButton(p: { x: number; y: number }) {
+  const w = snap(40);
+  const h = snap(20);
+  const x = snap(p.x - w / 2);
+  const y = snap(p.y - h / 2);
+  const id = nextEntityId;
+  nextEntityId += 1;
+  const def: ButtonDef = { x, y, w, h, id, targetBridgeId: null };
+  const body = Bodies.rectangle(x + w / 2, y + h / 2, w, h, {
+    isStatic: true,
+    isSensor: true,
+    label: 'button'
+  });
+  buttonDefs.push(def);
+  buttonBodies.push(body);
+  buttonPressed.push(false);
+  Composite.add(engine.world, body);
+  persistLevel();
+  return id;
+}
+
+function handleButtonClick(p: { x: number; y: number }) {
+  const hitButtons = Matter.Query.point(buttonBodies, p);
+  if (hitButtons.length > 0) {
+    const idx = buttonBodies.indexOf(hitButtons[0]);
+    const def = idx >= 0 ? buttonDefs[idx] : undefined;
+    if (def) {
+      buttonLinkingId = def.id;
+      persistLevel();
+      return;
+    }
+  }
+
+  if (buttonLinkingId === null) {
+    buttonLinkingId = addButton(p);
+    return;
+  }
+
+  const hitBridges = Matter.Query.point(bridgeBodies, p);
+  if (hitBridges.length > 0) {
+    const idx = bridgeBodies.indexOf(hitBridges[0]);
+    const bridge = idx >= 0 ? bridgeDefs[idx] : undefined;
+    if (bridge) {
+      const btn = buttonDefs.find(b => b.id === buttonLinkingId);
+      if (btn) btn.targetBridgeId = bridge.id;
+      buttonLinkingId = null;
+      persistLevel();
+      return;
+    }
+  }
+
+  buttonLinkingId = null;
+  persistLevel();
+}
+
+function removeBridgeBody(body: Matter.Body) {
+  const idx = bridgeBodies.indexOf(body);
+  if (idx === -1) return;
+  const id = bridgeDefs[idx]?.id;
+  Composite.remove(engine.world, body);
+  bridgeBodies.splice(idx, 1);
+  bridgeDefs.splice(idx, 1);
+  bridgeActivated.splice(idx, 1);
+  bridgeHomeCenters.splice(idx, 1);
+  bridgeCarryX.splice(idx, 1);
+  if (id !== undefined) {
+    for (let i = 0; i < buttonDefs.length; i += 1) {
+      if (buttonDefs[i].targetBridgeId === id) {
+        buttonDefs[i].targetBridgeId = null;
+      }
+    }
+  }
+  persistLevel();
+}
+
+function removeButtonBody(body: Matter.Body) {
+  const idx = buttonBodies.indexOf(body);
+  if (idx === -1) return;
+  const id = buttonDefs[idx]?.id;
+  Composite.remove(engine.world, body);
+  buttonBodies.splice(idx, 1);
+  buttonDefs.splice(idx, 1);
+  buttonPressed.splice(idx, 1);
+  if (buttonLinkingId === id) buttonLinkingId = null;
+  persistLevel();
+}
+
 function addSpike(rect: LevelRect) {
   const body = Bodies.rectangle(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h, {
     isStatic: true,
@@ -848,6 +1055,16 @@ function eraseAtPoint(p: { x: number; y: number }) {
       removeDoor();
       return;
     }
+  }
+  const hitButtons = Matter.Query.point(buttonBodies, p);
+  if (hitButtons.length > 0) {
+    removeButtonBody(hitButtons[0]);
+    return;
+  }
+  const hitBridges = Matter.Query.point(bridgeBodies, p);
+  if (hitBridges.length > 0) {
+    removeBridgeBody(hitBridges[0]);
+    return;
   }
   const hitBlocks = Matter.Query.point(blockBodies, p);
   if (hitBlocks.length > 0) {
@@ -1026,6 +1243,76 @@ function updateBlocks() {
   }
 }
 
+function updateButtons() {
+  if (bridgeActivated.length > 0) {
+    for (let i = 0; i < bridgeActivated.length; i += 1) bridgeActivated[i] = false;
+  }
+  if (buttonBodies.length === 0) return;
+
+  const activeBridgeIds = new Set<number>();
+  for (let i = 0; i < buttonBodies.length; i += 1) {
+    const body = buttonBodies[i];
+    const def = buttonDefs[i];
+    if (!body || !def) continue;
+
+    let pressed = false;
+    for (const player of playerSlots) {
+      if (!player) continue;
+      if (Matter.Query.collides(body, [player.body]).length > 0) {
+        pressed = true;
+        break;
+      }
+    }
+
+    if (!pressed && blockBodies.length > 0) {
+      if (Matter.Query.collides(body, blockBodies).length > 0) pressed = true;
+    }
+
+    buttonPressed[i] = pressed;
+    if (pressed && def.targetBridgeId !== null) activeBridgeIds.add(def.targetBridgeId);
+  }
+
+  if (activeBridgeIds.size === 0) return;
+  for (let i = 0; i < bridgeDefs.length; i += 1) {
+    const def = bridgeDefs[i];
+    if (!def) continue;
+    bridgeActivated[i] = activeBridgeIds.has(def.id);
+  }
+}
+
+function updateBridges() {
+  if (bridgeBodies.length === 0) return;
+  const step = 2;
+  for (let i = 0; i < bridgeBodies.length; i += 1) {
+    const body = bridgeBodies[i];
+    const def = bridgeDefs[i];
+    const home = bridgeHomeCenters[i];
+    if (!body || !def || !home) continue;
+
+    const target = bridgeActivated[i]
+      ? { x: home.x + def.dx * def.distance, y: home.y + def.dy * def.distance }
+      : home;
+
+    const dx = target.x - body.position.x;
+    const dy = target.y - body.position.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 0.001) {
+      bridgeCarryX[i] = 0;
+      Matter.Body.setVelocity(body, { x: 0, y: 0 });
+      Matter.Body.setAngularVelocity(body, 0);
+      continue;
+    }
+
+    const mag = Math.min(step, dist);
+    const mx = (dx / dist) * mag;
+    const my = (dy / dist) * mag;
+    Matter.Body.setPosition(body, { x: body.position.x + mx, y: body.position.y + my });
+    Matter.Body.setVelocity(body, { x: 0, y: 0 });
+    Matter.Body.setAngularVelocity(body, 0);
+    bridgeCarryX[i] = mx;
+  }
+}
+
 function updateDoor() {
   if (!doorBody) {
     levelCompleted = false;
@@ -1090,6 +1377,21 @@ function clearLevelData() {
   }
   spikeBodies = [];
   spikeRects = [];
+  for (const body of bridgeBodies) {
+    Composite.remove(engine.world, body);
+  }
+  bridgeBodies = [];
+  bridgeDefs = [];
+  bridgeActivated = [];
+  bridgeHomeCenters = [];
+  bridgeCarryX = [];
+  for (const body of buttonBodies) {
+    Composite.remove(engine.world, body);
+  }
+  buttonBodies = [];
+  buttonDefs = [];
+  buttonPressed = [];
+  buttonLinkingId = null;
   if (doorBody) {
     Composite.remove(engine.world, doorBody);
   }
@@ -1098,6 +1400,7 @@ function clearLevelData() {
   spawnPoint = null;
   levelCompleted = false;
   completionFrames = 0;
+  nextEntityId = 1;
   persistLevel();
 }
 
@@ -1145,6 +1448,21 @@ function loadLevelFromJson(json: string) {
   }
   spikeBodies = [];
   spikeRects = [];
+  for (const body of bridgeBodies) {
+    Composite.remove(engine.world, body);
+  }
+  bridgeBodies = [];
+  bridgeDefs = [];
+  bridgeActivated = [];
+  bridgeHomeCenters = [];
+  bridgeCarryX = [];
+  for (const body of buttonBodies) {
+    Composite.remove(engine.world, body);
+  }
+  buttonBodies = [];
+  buttonDefs = [];
+  buttonPressed = [];
+  buttonLinkingId = null;
   spawnPoint = null;
   if (keyBody) {
     Composite.remove(engine.world, keyBody);
@@ -1214,6 +1532,46 @@ function loadLevelFromJson(json: string) {
     Composite.add(engine.world, body);
   }
 
+  for (const br of next.bridges) {
+    const rect: LevelRect = { x: br.x, y: br.y, w: br.w, h: br.h };
+    const id = Math.round(br.id);
+    const dx = Math.round(br.dx);
+    const dy = Math.round(br.dy);
+    const distance = snap(Math.max(0, Math.round(br.distance)));
+    const def: BridgeDef = { ...rect, id, dx, dy, distance };
+    const body = Bodies.rectangle(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h, {
+      isStatic: true,
+      label: 'bridge'
+    });
+    bridgeDefs.push(def);
+    bridgeBodies.push(body);
+    bridgeActivated.push(false);
+    bridgeHomeCenters.push({ x: body.position.x, y: body.position.y });
+    bridgeCarryX.push(0);
+    Composite.add(engine.world, body);
+  }
+
+  for (const btn of next.buttons) {
+    const rect: LevelRect = { x: btn.x, y: btn.y, w: btn.w, h: btn.h };
+    const id = Math.round(btn.id);
+    const targetBridgeId =
+      btn.targetBridgeId === null || btn.targetBridgeId === undefined ? null : Math.round(btn.targetBridgeId);
+    const def: ButtonDef = { ...rect, id, targetBridgeId };
+    const body = Bodies.rectangle(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h, {
+      isStatic: true,
+      isSensor: true,
+      label: 'button'
+    });
+    buttonDefs.push(def);
+    buttonBodies.push(body);
+    buttonPressed.push(false);
+    Composite.add(engine.world, body);
+  }
+
+  nextEntityId = 1;
+  for (const br of bridgeDefs) nextEntityId = Math.max(nextEntityId, br.id + 1);
+  for (const btn of buttonDefs) nextEntityId = Math.max(nextEntityId, btn.id + 1);
+
   ensureDoor();
   ensureSpawn();
   ensureKey();
@@ -1228,6 +1586,8 @@ function buildLevelState(): LevelState {
     spawn: spawnPoint,
     key: keyPoint,
     blocks: blockDefs,
+    bridges: bridgeDefs,
+    buttons: buttonDefs,
     spikes: spikeRects
   };
 }
@@ -1264,7 +1624,17 @@ function parseLevelState(input: unknown): LevelState | null {
       if (!rect) return null;
       platforms.push(rect);
     }
-    return { config: levelConfig, platforms, door: null, spawn: null, key: null, blocks: [], spikes: [] };
+    return {
+      config: levelConfig,
+      platforms,
+      door: null,
+      spawn: null,
+      key: null,
+      blocks: [],
+      bridges: [],
+      buttons: [],
+      spikes: []
+    };
   }
 
   if (!input || typeof input !== 'object') return null;
@@ -1275,6 +1645,8 @@ function parseLevelState(input: unknown): LevelState | null {
     spawn?: unknown;
     key?: unknown;
     blocks?: unknown;
+    bridges?: unknown;
+    buttons?: unknown;
     spikes?: unknown;
   };
   if (!Array.isArray(obj.platforms)) return null;
@@ -1327,6 +1699,45 @@ function parseLevelState(input: unknown): LevelState | null {
     }
   }
 
+  const bridges: BridgeDef[] = [];
+  if (obj.bridges !== null && obj.bridges !== undefined) {
+    if (!Array.isArray(obj.bridges)) return null;
+    for (const item of obj.bridges) {
+      const rect = parseRect(item);
+      if (!rect) return null;
+      if (!item || typeof item !== 'object') return null;
+      const b = item as { id?: unknown; dx?: unknown; dy?: unknown; distance?: unknown };
+      if (typeof b.id !== 'number' || typeof b.dx !== 'number' || typeof b.dy !== 'number' || typeof b.distance !== 'number') {
+        return null;
+      }
+      const id = Math.round(b.id);
+      const dx = Math.round(b.dx);
+      const dy = Math.round(b.dy);
+      if (Math.abs(dx) + Math.abs(dy) !== 1) return null;
+      const distance = Math.max(0, Math.round(b.distance));
+      bridges.push({ ...rect, id, dx, dy, distance });
+    }
+  }
+
+  const buttons: ButtonDef[] = [];
+  if (obj.buttons !== null && obj.buttons !== undefined) {
+    if (!Array.isArray(obj.buttons)) return null;
+    for (const item of obj.buttons) {
+      const rect = parseRect(item);
+      if (!rect) return null;
+      if (!item || typeof item !== 'object') return null;
+      const b = item as { id?: unknown; targetBridgeId?: unknown };
+      if (typeof b.id !== 'number') return null;
+      const id = Math.round(b.id);
+      let targetBridgeId: number | null = null;
+      if (b.targetBridgeId !== null && b.targetBridgeId !== undefined) {
+        if (typeof b.targetBridgeId !== 'number') return null;
+        targetBridgeId = Math.round(b.targetBridgeId);
+      }
+      buttons.push({ ...rect, id, targetBridgeId });
+    }
+  }
+
   const spikes: LevelRect[] = [];
   if (obj.spikes !== null && obj.spikes !== undefined) {
     if (!Array.isArray(obj.spikes)) return null;
@@ -1337,5 +1748,5 @@ function parseLevelState(input: unknown): LevelState | null {
     }
   }
 
-  return { config, platforms, door, spawn, key, blocks, spikes };
+  return { config, platforms, door, spawn, key, blocks, bridges, buttons, spikes };
 }

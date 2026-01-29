@@ -11,6 +11,8 @@ function App() {
   const [blockRequired, setBlockRequired] = useState(2);
   const [levelWidth, setLevelWidth] = useState(0);
   const [levelHeight, setLevelHeight] = useState(0);
+  const [bridgeMove, setBridgeMove] = useState({ dx: 1, dy: 0 });
+  const [bridgeDistance, setBridgeDistance] = useState(200);
 
   const downloadTextFile = (filename: string, text: string) => {
     const blob = new Blob([text], { type: 'application/json' });
@@ -50,6 +52,8 @@ function App() {
       const size = api.getLevelSize();
       setLevelWidth(size.width);
       setLevelHeight(size.height);
+      setBridgeMove(api.getBridgeMove());
+      setBridgeDistance(api.getBridgeDistance());
       return () => {
         gameApiRef.current = null;
         destroy();
@@ -182,6 +186,93 @@ function App() {
                 </div>
               </div>
             )}
+            <button
+              type="button"
+              className={editorTool === 'bridge' ? 'active' : undefined}
+              onClick={() => {
+                const api = gameApiRef.current;
+                if (!api) return;
+                setEditorTool(api.setEditorTool('bridge'));
+                setBridgeMove(api.getBridgeMove());
+                setBridgeDistance(api.getBridgeDistance());
+              }}
+            >
+              Bridge
+            </button>
+            {editorTool === 'bridge' && (
+              <div className="bridge-settings">
+                <div className="block-settings-label">Move direction</div>
+                <div className="block-settings-buttons">
+                  <button
+                    type="button"
+                    className={bridgeMove.dx === 0 && bridgeMove.dy === -1 ? 'active mini' : 'mini'}
+                    onClick={() => {
+                      const api = gameApiRef.current;
+                      if (!api) return;
+                      setBridgeMove(api.setBridgeMove(0, -1));
+                    }}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    className={bridgeMove.dx === -1 && bridgeMove.dy === 0 ? 'active mini' : 'mini'}
+                    onClick={() => {
+                      const api = gameApiRef.current;
+                      if (!api) return;
+                      setBridgeMove(api.setBridgeMove(-1, 0));
+                    }}
+                  >
+                    ←
+                  </button>
+                  <button
+                    type="button"
+                    className={bridgeMove.dx === 1 && bridgeMove.dy === 0 ? 'active mini' : 'mini'}
+                    onClick={() => {
+                      const api = gameApiRef.current;
+                      if (!api) return;
+                      setBridgeMove(api.setBridgeMove(1, 0));
+                    }}
+                  >
+                    →
+                  </button>
+                  <button
+                    type="button"
+                    className={bridgeMove.dx === 0 && bridgeMove.dy === 1 ? 'active mini' : 'mini'}
+                    onClick={() => {
+                      const api = gameApiRef.current;
+                      if (!api) return;
+                      setBridgeMove(api.setBridgeMove(0, 1));
+                    }}
+                  >
+                    ↓
+                  </button>
+                </div>
+                <div className="block-settings-label">Move distance</div>
+                <input
+                  type="number"
+                  value={bridgeDistance}
+                  onChange={(e) => {
+                    const api = gameApiRef.current;
+                    if (!api) return;
+                    const next = Number(e.target.value);
+                    if (!Number.isFinite(next)) return;
+                    setBridgeDistance(api.setBridgeDistance(next));
+                  }}
+                />
+              </div>
+            )}
+            <button
+              type="button"
+              className={editorTool === 'button' ? 'active' : undefined}
+              onClick={() => {
+                const api = gameApiRef.current;
+                if (!api) return;
+                setEditorTool(api.setEditorTool('button'));
+              }}
+            >
+              Button
+            </button>
             <button
               type="button"
               className={editorTool === 'spawn' ? 'active' : undefined}
@@ -328,6 +419,8 @@ function App() {
               if (enabled) {
                 setEditorTool(api.getEditorTool());
                 setBlockRequired(api.getBlockRequired());
+                setBridgeMove(api.getBridgeMove());
+                setBridgeDistance(api.getBridgeDistance());
                 const size = api.getLevelSize();
                 setLevelWidth(size.width);
                 setLevelHeight(size.height);
@@ -357,7 +450,7 @@ function App() {
         <canvas ref={canvasRef} />
         <div className="instructions">
           {editorEnabled
-            ? `EDITOR: Tool=${editorTool}. Drag to place (spawn: click). Right-click to delete. Middle-drag to pan. Scroll to pan. Alt+scroll pans sideways. Shift+scroll zooms.`
+            ? `EDITOR: Tool=${editorTool}. Drag to place (spawn: click, button: click then click bridge). Right-click to delete. Middle-drag to pan. Scroll to pan. Alt+scroll pans sideways. Shift+scroll zooms.`
             : 'Connect up to 4 gamepads to play. Get everyone to the door.'}
         </div>
       </div>
