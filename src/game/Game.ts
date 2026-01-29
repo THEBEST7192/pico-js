@@ -625,9 +625,9 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       keyCarrierSlot = next.keyCarrierSlot;
       doorUnlocked = next.doorUnlocked;
     }
-    sysUpdateBlocks(blockBodies, blockDefs, playerSlots, blockPusherCounts);
+    sysUpdateBlocks(blockBodies, blockDefs, playerSlots, blockPusherCounts, engine, bridgeBodies, bridgeCarryX);
     sysUpdateButtons(buttonBodies, buttonDefs, playerSlots, blockBodies, bridgeDefs, bridgeActivated, bridgeLatched, buttonPressed);
-    sysUpdateBridges(bridgeBodies, bridgeDefs, bridgeHomeCenters, bridgeActivated, bridgeLatched, bridgeCarryX);
+    sysUpdateBridges(bridgeBodies, bridgeDefs, bridgeHomeCenters, bridgeActivated, bridgeLatched, bridgeCarryX, blockBodies);
     {
       const next = sysUpdateDoor(doorBody, keyPoint, doorUnlocked, playerSlots, levelCompleted, completionFrames);
       levelCompleted = next.levelCompleted;
@@ -761,10 +761,12 @@ function checkGrounding() {
     );
     
     // Check slightly below the player
-    const isGrounded = Matter.Query.region(groundBodies, {
+    const regionBelow = {
       min: { x: player.body.position.x - 18, y: player.body.position.y + 21 },
       max: { x: player.body.position.x + 18, y: player.body.position.y + 25 }
-    }).length > 0;
+    };
+    const belowHits = Matter.Query.region(groundBodies, regionBelow);
+    const isGrounded = belowHits.length > 0;
 
     const otherPlayers = playerSlots.filter((p): p is Player => Boolean(p) && p !== player);
     const playerContacts = Matter.Query.collides(player.body, otherPlayers.map(p => p.body));
@@ -773,17 +775,29 @@ function checkGrounding() {
       return other.label === 'player' && other.position.y < player.body.position.y - 5;
     });
 
-    const support = playerContacts
+    const supportPlayer = playerContacts
       .map(c => (c.bodyA === player.body ? c.bodyB : c.bodyA))
       .filter(b => b.label === 'player' && b.position.y > player.body.position.y + 5)
       .sort((a, b) => b.position.y - a.position.y)[0];
-    let carryX = support ? support.velocity.x : 0;
-    if (support?.label === 'bridge') {
-      const idx = bridgeBodies.indexOf(support);
+    const bridgeBelow = belowHits.find(b => b.label === 'bridge');
+    let carryX = 0;
+    if (supportPlayer) {
+      carryX = supportPlayer.velocity.x;
+    } else if (bridgeBelow) {
+      const idx = bridgeBodies.indexOf(bridgeBelow);
       carryX = idx >= 0 ? bridgeCarryX[idx] ?? 0 : 0;
     }
-    
-    player.update(isGrounded, isGrounded && !hasPlayerAbove, carryX);
+    const pushingBlock =
+      blockBodies.some(b => {
+        if (Matter.Query.collides(player.body, [b]).length === 0) return false;
+        const dx = b.position.x - player.body.position.x;
+        if (dx > 0 && player.moveAxisX > 0.2) return true;
+        if (dx > 0 && player.moveAxisX > 0.2) return true;
+        if (dx < 0 && player.moveAxisX < -0.2) return true;
+        return false;
+      });
+    const pushSlowdown = pushingBlock ? 0.6 : 1;
+    player.update(isGrounded, isGrounded && !hasPlayerAbove, carryX, pushSlowdown);
   });
 }
 
@@ -1052,6 +1066,18 @@ function resetOnDeath() {
     if (keyBody) Composite.remove(engine.world, keyBody);
     keyBody = null;
     keyCarrierSlot = null;
+  }
+
+  for (let i = 0; i < blockBodies.length; i += 1) {
+    const body = blockBodies[i];
+    const def = blockDefs[i];
+    if (!body || !def) continue;
+    const cx = def.x + def.w / 2;
+    const cy = def.y + def.h / 2;
+    Matter.Body.setPosition(body, { x: cx, y: cy });
+    Matter.Body.setVelocity(body, { x: 0, y: 0 });
+    Matter.Body.setAngularVelocity(body, 0);
+    Matter.Body.setStatic(body, true);
   }
 
   for (let i = 0; i < bridgeBodies.length; i += 1) {

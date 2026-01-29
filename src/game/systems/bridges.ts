@@ -8,7 +8,8 @@ export function updateBridges(
   bridgeHomeCenters: Array<{ x: number; y: number }>,
   bridgeActivated: boolean[],
   bridgeLatched: boolean[],
-  bridgeCarryX: number[]
+  bridgeCarryX: number[],
+  blockBodies: Body[]
 ) {
   if (bridgeBodies.length === 0) return;
   const step = 2;
@@ -36,6 +37,48 @@ export function updateBridges(
     const mag = Math.min(step, dist);
     const mx = (dx / dist) * mag;
     const my = (dy / dist) * mag;
+    if (blockBodies.length > 0) {
+      const tol = 2;
+      const horizontal = Math.abs(mx) >= Math.abs(my);
+      let regionMinX: number;
+      let regionMaxX: number;
+      let regionMinY: number;
+      let regionMaxY: number;
+      if (horizontal) {
+        const slice = 4;
+        if (mx > 0) {
+          regionMinX = body.bounds.max.x;
+          regionMaxX = body.bounds.max.x + slice;
+        } else {
+          regionMinX = body.bounds.min.x - slice;
+          regionMaxX = body.bounds.min.x;
+        }
+        regionMinY = body.bounds.min.y + tol;
+        regionMaxY = body.bounds.max.y - tol;
+      } else {
+        const slice = 4;
+        regionMinX = body.bounds.min.x + tol;
+        regionMaxX = body.bounds.max.x - tol;
+        if (my > 0) {
+          regionMinY = body.bounds.max.y;
+          regionMaxY = body.bounds.max.y + slice;
+        } else {
+          regionMinY = body.bounds.min.y - slice;
+          regionMaxY = body.bounds.min.y;
+        }
+      }
+      const region = { min: { x: regionMinX, y: regionMinY }, max: { x: regionMaxX, y: regionMaxY } };
+      let obstructors = Matter.Query.region(blockBodies, region);
+      if (horizontal && obstructors.length > 0) {
+        obstructors = obstructors.filter(b => b.bounds.max.y > body.bounds.min.y + tol);
+      }
+      if (obstructors.length > 0) {
+        bridgeCarryX[i] = 0;
+        Matter.Body.setVelocity(body, { x: 0, y: 0 });
+        Matter.Body.setAngularVelocity(body, 0);
+        continue;
+      }
+    }
     Matter.Body.setPosition(body, { x: body.position.x + mx, y: body.position.y + my });
     Matter.Body.setVelocity(body, { x: 0, y: 0 });
     Matter.Body.setAngularVelocity(body, 0);

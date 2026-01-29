@@ -10,6 +10,7 @@ export class Player {
   private moveSpeed = 5;
   private canJump = false;
   private carryX = 0;
+  private pushSlowdown = 1;
 
   constructor(gamepadIndex: number, gamepadId: string, x: number, y: number, color: string) {
     this.gamepadIndex = gamepadIndex;
@@ -30,7 +31,7 @@ export class Player {
     // Movement (Left Stick X)
     const moveX = gp.axes[0];
     this.moveAxisX = moveX;
-    const inputX = Math.abs(moveX) > 0.2 ? moveX * this.moveSpeed : 0;
+    const inputX = Math.abs(moveX) > 0.2 ? moveX * this.moveSpeed * this.pushSlowdown : 0;
     Matter.Body.setVelocity(this.body, {
       x: this.carryX + inputX,
       y: this.body.velocity.y
@@ -47,9 +48,10 @@ export class Player {
     }
   }
 
-  update(isGrounded: boolean, canJump: boolean = isGrounded, carryX: number = 0) {
+  update(isGrounded: boolean, canJump: boolean = isGrounded, carryX: number = 0, pushSlowdown: number = 1) {
     this.canJump = canJump;
     this.carryX = carryX;
+    this.pushSlowdown = pushSlowdown;
   }
 
   draw(ctx: CanvasRenderingContext2D) {
