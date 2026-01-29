@@ -13,6 +13,7 @@ function App() {
   const [levelHeight, setLevelHeight] = useState(0);
   const [bridgeMove, setBridgeMove] = useState({ dx: 1, dy: 0 });
   const [bridgeDistance, setBridgeDistance] = useState(200);
+  const [bridgePermanent, setBridgePermanent] = useState(false);
 
   const downloadTextFile = (filename: string, text: string) => {
     const blob = new Blob([text], { type: 'application/json' });
@@ -54,6 +55,7 @@ function App() {
       setLevelHeight(size.height);
       setBridgeMove(api.getBridgeMove());
       setBridgeDistance(api.getBridgeDistance());
+      setBridgePermanent(api.getBridgePermanent());
       return () => {
         gameApiRef.current = null;
         destroy();
@@ -195,6 +197,7 @@ function App() {
                 setEditorTool(api.setEditorTool('bridge'));
                 setBridgeMove(api.getBridgeMove());
                 setBridgeDistance(api.getBridgeDistance());
+                setBridgePermanent(api.getBridgePermanent());
               }}
             >
               Bridge
@@ -260,6 +263,18 @@ function App() {
                     setBridgeDistance(api.setBridgeDistance(next));
                   }}
                 />
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={bridgePermanent}
+                    onChange={(e) => {
+                      const api = gameApiRef.current;
+                      if (!api) return;
+                      setBridgePermanent(api.setBridgePermanent(e.target.checked));
+                    }}
+                  />
+                  Permanent after pressed
+                </label>
               </div>
             )}
             <button
@@ -421,6 +436,7 @@ function App() {
                 setBlockRequired(api.getBlockRequired());
                 setBridgeMove(api.getBridgeMove());
                 setBridgeDistance(api.getBridgeDistance());
+                setBridgePermanent(api.getBridgePermanent());
                 const size = api.getLevelSize();
                 setLevelWidth(size.width);
                 setLevelHeight(size.height);

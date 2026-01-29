@@ -140,6 +140,21 @@ canvas {
   box-sizing: border-box;
 }
 
+.sidebar input[type='checkbox'] {
+  width: auto;
+  padding: 0;
+  border-radius: 4px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: sans-serif;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+}
+
 .level-size {
   display: flex;
   flex-direction: column;
