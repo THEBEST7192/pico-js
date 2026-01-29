@@ -4,6 +4,7 @@ export class Player {
   public body: Matter.Body;
   public gamepadIndex: number;
   public gamepadId: string;
+  public moveAxisX = 0;
   private color: string;
   private jumpPower = 12;
   private moveSpeed = 5;
@@ -28,6 +29,7 @@ export class Player {
   handleInput(gp: Gamepad) {
     // Movement (Left Stick X)
     const moveX = gp.axes[0];
+    this.moveAxisX = moveX;
     const inputX = Math.abs(moveX) > 0.2 ? moveX * this.moveSpeed : 0;
     Matter.Body.setVelocity(this.body, {
       x: this.carryX + inputX,

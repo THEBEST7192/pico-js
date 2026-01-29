@@ -8,6 +8,7 @@ function App() {
   const importInputRef = useRef<HTMLInputElement>(null);
   const [editorEnabled, setEditorEnabled] = useState(false);
   const [editorTool, setEditorTool] = useState<EditorTool>('platform');
+  const [blockRequired, setBlockRequired] = useState(2);
 
   const downloadTextFile = (filename: string, text: string) => {
     const blob = new Blob([text], { type: 'application/json' });
@@ -43,6 +44,7 @@ function App() {
       gameApiRef.current = api;
       setEditorEnabled(api.getEditorEnabled());
       setEditorTool(api.getEditorTool());
+      setBlockRequired(api.getBlockRequired());
       return () => {
         gameApiRef.current = null;
         destroy();
@@ -91,6 +93,17 @@ function App() {
             </button>
             <button
               type="button"
+              className={editorTool === 'block' ? 'active' : undefined}
+              onClick={() => {
+                const api = gameApiRef.current;
+                if (!api) return;
+                setEditorTool(api.setEditorTool('block'));
+              }}
+            >
+              Block ({blockRequired}p)
+            </button>
+            <button
+              type="button"
               className={editorTool === 'spawn' ? 'active' : undefined}
               onClick={() => {
                 const api = gameApiRef.current;
@@ -122,6 +135,54 @@ function App() {
             >
               Erase
             </button>
+            {editorTool === 'block' && (
+              <>
+                <button
+                  type="button"
+                  className={blockRequired === 1 ? 'active' : undefined}
+                  onClick={() => {
+                    const api = gameApiRef.current;
+                    if (!api) return;
+                    setBlockRequired(api.setBlockRequired(1));
+                  }}
+                >
+                  1p
+                </button>
+                <button
+                  type="button"
+                  className={blockRequired === 2 ? 'active' : undefined}
+                  onClick={() => {
+                    const api = gameApiRef.current;
+                    if (!api) return;
+                    setBlockRequired(api.setBlockRequired(2));
+                  }}
+                >
+                  2p
+                </button>
+                <button
+                  type="button"
+                  className={blockRequired === 3 ? 'active' : undefined}
+                  onClick={() => {
+                    const api = gameApiRef.current;
+                    if (!api) return;
+                    setBlockRequired(api.setBlockRequired(3));
+                  }}
+                >
+                  3p
+                </button>
+                <button
+                  type="button"
+                  className={blockRequired === 4 ? 'active' : undefined}
+                  onClick={() => {
+                    const api = gameApiRef.current;
+                    if (!api) return;
+                    setBlockRequired(api.setBlockRequired(4));
+                  }}
+                >
+                  4p
+                </button>
+              </>
+            )}
           </div>
           <div className="sidebar-title">Level</div>
           <div className="sidebar-section">
@@ -189,7 +250,10 @@ function App() {
               if (!api) return;
               const enabled = api.toggleEditor();
               setEditorEnabled(enabled);
-              if (enabled) setEditorTool(api.getEditorTool());
+              if (enabled) {
+                setEditorTool(api.getEditorTool());
+                setBlockRequired(api.getBlockRequired());
+              }
             }}
           >
             Editor: {editorEnabled ? 'On' : 'Off'}
