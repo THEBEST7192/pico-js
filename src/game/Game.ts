@@ -1,4 +1,18 @@
 import Matter from 'matter-js';
+import { drawButton } from './render/button';
+import { drawKey } from './render/key';
+import { drawDoor } from './render/door';
+import { drawBlock } from './render/block';
+import { drawBridge } from './render/bridge';
+import { drawSpike } from './render/spike';
+import { drawPlatform } from './render/platform';
+import { drawSpawn } from './render/spawn';
+import { updateBlocks as sysUpdateBlocks } from './systems/blocks';
+import { updateButtons as sysUpdateButtons } from './systems/buttons';
+import { updateBridges as sysUpdateBridges } from './systems/bridges';
+import { updateDoor as sysUpdateDoor } from './systems/door';
+import { updateKey as sysUpdateKey } from './systems/key';
+import { updateSpikes as sysUpdateSpikes } from './systems/spikes';
 import { Player } from './Player';
 
 const { Engine, Runner, Bodies, Composite } = Matter;
@@ -13,7 +27,7 @@ const PLAYER_COLORS = ['#ff4d4d', '#4dff4d', '#4d4dff', '#ffff4d'];
 const LEVEL_STORAGE_KEY = 'pico_level_v1';
 const GRID_SIZE = 20;
 
-type LevelRect = {
+export type LevelRect = {
   x: number;
   y: number;
   w: number;
@@ -490,12 +504,21 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
   const update = () => {
     updateInput();
     checkGrounding();
-    updateKey();
-    updateBlocks();
-    updateButtons();
-    updateBridges();
-    updateDoor();
-    updateSpikes();
+    {
+      const next = sysUpdateKey(engine, keyBody, keyCarrierSlot, playerSlots, doorUnlocked, doorBody);
+      keyBody = next.keyBody;
+      keyCarrierSlot = next.keyCarrierSlot;
+      doorUnlocked = next.doorUnlocked;
+    }
+    sysUpdateBlocks(blockBodies, blockDefs, playerSlots, blockPusherCounts);
+    sysUpdateButtons(buttonBodies, buttonDefs, playerSlots, blockBodies, bridgeDefs, bridgeActivated, bridgeLatched, buttonPressed);
+    sysUpdateBridges(bridgeBodies, bridgeDefs, bridgeHomeCenters, bridgeActivated, bridgeLatched, bridgeCarryX);
+    {
+      const next = sysUpdateDoor(doorBody, keyPoint, doorUnlocked, playerSlots, levelCompleted, completionFrames);
+      levelCompleted = next.levelCompleted;
+      completionFrames = next.completionFrames;
+    }
+    sysUpdateSpikes(spikeBodies, playerSlots, respawnAllPlayers);
     updateCameraFollow();
     updateEditorCameraPan();
     
@@ -668,32 +691,7 @@ function draw() {
           const r = circleRadius !== undefined ? circleRadius : (body.bounds.max.x - body.bounds.min.x) / 2;
           const cx = body.position.x;
           const cy = body.position.y;
-          const bowR = Math.max(6, Math.round(r * 0.7));
-          const stemLen = Math.max(14, Math.round(r * 1.8));
-          const stemW = Math.max(4, Math.round(r * 0.5));
-          const startX = cx - stemLen / 2 + bowR - Math.round(stemW * 0.5);
-          ctx.fillStyle = '#fdd835';
-          ctx.fillRect(startX, cy - stemW / 2, stemLen, stemW);
-          const toothW = Math.max(3, Math.round(stemW * 0.6));
-          const toothH = Math.max(4, Math.round(stemW));
-          const endX = startX + stemLen - toothW;
-          ctx.fillRect(endX, cy + stemW / 2 - 1, toothW, toothH);
-          ctx.fillRect(endX - toothW - 3, cy + stemW / 2 - 1, toothW, Math.round(toothH * 0.7));
-          ctx.strokeStyle = '#bfa100';
-          ctx.strokeRect(startX, cy - stemW / 2, stemLen, stemW);
-          ctx.fillStyle = '#ffeb3b';
-          ctx.strokeStyle = '#bfa100';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.arc(cx - stemLen / 2, cy, bowR, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-          ctx.save();
-          ctx.globalCompositeOperation = 'destination-out';
-          ctx.beginPath();
-          ctx.arc(cx - stemLen / 2, cy, Math.round(bowR * 0.45), 0, Math.PI * 2);
-          ctx.fill();
-          ctx.restore();
+          drawKey(ctx, cx, cy, r);
           return;
         }
         if (body.label === 'button') {
@@ -704,68 +702,34 @@ function draw() {
           const by = def ? def.y : body.bounds.min.y;
           const bw = def ? def.w : body.bounds.max.x - body.bounds.min.x;
           const bh = def ? def.h : body.bounds.max.y - body.bounds.min.y;
-          const baseW = bw;
-          const baseH = Math.max(8, Math.round(bh * 0.45));
-          const baseX = bx;
-          const baseY = by + bh - baseH;
-          ctx.fillStyle = '#ff9800';
-          ctx.fillRect(baseX, baseY, baseW, baseH);
-          const lift = pressed ? Math.round(bh * 0.25) : Math.round(bh * 0.1);
-          const topH = Math.max(8, Math.round(bh * 0.5 - (pressed ? 3 : 0)));
-          const topX = bx + 4;
-          const topY = by + lift;
-          ctx.fillStyle = pressed ? '#8b0000' : '#ff0000';
-          ctx.fillRect(topX, topY, bw - 8, topH);
-          ctx.strokeStyle = pressed ? '#660000' : '#990000';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(topX, topY, bw - 8, topH);
-          ctx.fillStyle = pressed ? '#b22222' : '#ff6b6b';
-          ctx.fillRect(topX + 3, topY + 3, bw - 12, 4);
+          drawButton(ctx, bx, by, bw, bh, pressed);
           return;
         }
         if (body.label === 'door') {
-          ctx.fillStyle = keyPoint && !doorUnlocked ? '#90a4ae' : levelCompleted ? '#00e676' : '#ffb300';
-        } else if (body.label === 'key') {
-          ctx.fillStyle = '#ffeb3b';
-        } else if (body.label === 'block') {
-          ctx.fillStyle = '#ff9800';
-        } else if (body.label === 'bridge') {
-          const idx = bridgeBodies.indexOf(body);
-          const permanent = idx >= 0 ? Boolean(bridgeDefs[idx]?.permanent) : false;
-          ctx.fillStyle = permanent ? '#7c4dff' : '#00bcd4';
-        } else if (body.label === 'spike') {
-          ctx.fillStyle = '#e53935';
-        } else {
-          ctx.fillStyle = body.label === 'platform' ? '#555' : '#333';
+          drawDoor(ctx, body, { hasKeyPoint: Boolean(keyPoint), doorUnlocked, levelCompleted });
+          return;
         }
-        ctx.beginPath();
-        ctx.moveTo(body.vertices[0].x, body.vertices[0].y);
-        for (let i = 1; i < body.vertices.length; i++) {
-          ctx.lineTo(body.vertices[i].x, body.vertices[i].y);
-        }
-        ctx.closePath();
-        ctx.fill();
-
         if (body.label === 'block') {
-          const { min, max } = body.bounds;
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(min.x + 2, min.y + 2, max.x - min.x - 4, max.y - min.y - 4);
-
           const idx = blockBodies.indexOf(body);
           const def = idx >= 0 ? blockDefs[idx] : undefined;
           const required = def?.required;
           const pushers = idx >= 0 ? blockPusherCounts[idx] ?? 0 : 0;
-          if (required) {
-            const remaining = Math.max(0, required - pushers);
-            ctx.fillStyle = '#ffffff';
-            ctx.font = '28px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(String(remaining), body.position.x, body.position.y);
-            ctx.textAlign = 'start';
-            ctx.textBaseline = 'alphabetic';
-          }
+          drawBlock(ctx, body, { required, pushers });
+          return;
+        }
+        if (body.label === 'bridge') {
+          const idx = bridgeBodies.indexOf(body);
+          const permanent = idx >= 0 ? Boolean(bridgeDefs[idx]?.permanent) : false;
+          drawBridge(ctx, body, permanent);
+          return;
+        }
+        if (body.label === 'spike') {
+          drawSpike(ctx, body);
+          return;
+        }
+        if (body.label === 'platform') {
+          drawPlatform(ctx, body);
+          return;
         }
       }
     }
@@ -821,10 +785,7 @@ function draw() {
   });
 
   if (spawnPoint) {
-    ctx.fillStyle = '#00e676';
-    ctx.beginPath();
-    ctx.arc(spawnPoint.x, spawnPoint.y, 10, 0, Math.PI * 2);
-    ctx.fill();
+    drawSpawn(ctx, spawnPoint.x, spawnPoint.y);
   }
 
   if (editorEnabled) {
@@ -1310,184 +1271,6 @@ function respawnAllPlayers() {
   }
 }
 
-function updateKey() {
-  if (!keyBody) return;
-
-  if (keyCarrierSlot === null) {
-    for (let slot = 0; slot < playerSlots.length; slot += 1) {
-      const player = playerSlots[slot];
-      if (!player) continue;
-      if (Matter.Query.collides(keyBody!, [player.body]).length > 0) {
-        keyCarrierSlot = slot;
-        break;
-      }
-    }
-  }
-
-  if (keyCarrierSlot !== null) {
-    const carrier = playerSlots[keyCarrierSlot];
-    if (!carrier) {
-      keyCarrierSlot = null;
-      return;
-    }
-
-    Matter.Body.setPosition(keyBody, { x: carrier.body.position.x, y: carrier.body.position.y - 34 });
-    Matter.Body.setVelocity(keyBody, { x: 0, y: 0 });
-    Matter.Body.setAngularVelocity(keyBody, 0);
-
-    if (!doorUnlocked && doorBody && Matter.Query.collides(doorBody, [carrier.body]).length > 0) {
-      doorUnlocked = true;
-      Composite.remove(engine.world, keyBody);
-      keyBody = null;
-      keyCarrierSlot = null;
-    }
-  }
-}
-
-function updateBlocks() {
-  if (blockBodies.length === 0) return;
-  for (let i = 0; i < blockBodies.length; i += 1) {
-    const body = blockBodies[i];
-    const def = blockDefs[i];
-    if (!def) continue;
-
-    const pushers = new Set<number>();
-    for (let slot = 0; slot < playerSlots.length; slot += 1) {
-      const player = playerSlots[slot];
-      if (!player) continue;
-      if (Math.abs(player.moveAxisX) < 0.2) continue;
-      if (Matter.Query.collides(body, [player.body]).length === 0) continue;
-
-      const dx = body.position.x - player.body.position.x;
-      if (dx > 0 && player.moveAxisX > 0) pushers.add(slot);
-      if (dx < 0 && player.moveAxisX < 0) pushers.add(slot);
-    }
-
-    blockPusherCounts[i] = pushers.size;
-    const shouldMove = pushers.size >= def.required;
-    if (shouldMove && body.isStatic) {
-      Matter.Body.setStatic(body, false);
-    } else if (!shouldMove && !body.isStatic) {
-      Matter.Body.setVelocity(body, { x: 0, y: body.velocity.y });
-      Matter.Body.setAngularVelocity(body, 0);
-      Matter.Body.setStatic(body, true);
-    }
-  }
-}
-
-function updateButtons() {
-  if (bridgeActivated.length > 0) {
-    for (let i = 0; i < bridgeActivated.length; i += 1) bridgeActivated[i] = false;
-  }
-  if (buttonBodies.length === 0) return;
-
-  const activeBridgeIds = new Set<number>();
-  for (let i = 0; i < buttonBodies.length; i += 1) {
-    const body = buttonBodies[i];
-    const def = buttonDefs[i];
-    if (!body || !def) continue;
-
-    let pressed = false;
-    for (const player of playerSlots) {
-      if (!player) continue;
-      if (Matter.Query.collides(body, [player.body]).length > 0) {
-        pressed = true;
-        break;
-      }
-    }
-
-    if (!pressed && blockBodies.length > 0) {
-      if (Matter.Query.collides(body, blockBodies).length > 0) pressed = true;
-    }
-
-    buttonPressed[i] = pressed;
-    if (pressed && def.targetBridgeId !== null) activeBridgeIds.add(def.targetBridgeId);
-  }
-
-  if (activeBridgeIds.size === 0) return;
-  for (let i = 0; i < bridgeDefs.length; i += 1) {
-    const def = bridgeDefs[i];
-    if (!def) continue;
-    const active = activeBridgeIds.has(def.id);
-    bridgeActivated[i] = active;
-    if (active && def.permanent) bridgeLatched[i] = true;
-  }
-}
-
-function updateBridges() {
-  if (bridgeBodies.length === 0) return;
-  const step = 2;
-  for (let i = 0; i < bridgeBodies.length; i += 1) {
-    const body = bridgeBodies[i];
-    const def = bridgeDefs[i];
-    const home = bridgeHomeCenters[i];
-    if (!body || !def || !home) continue;
-
-    const active = Boolean(bridgeActivated[i]) || Boolean(bridgeLatched[i]);
-    const target = active
-      ? { x: home.x + def.dx * def.distance, y: home.y + def.dy * def.distance }
-      : home;
-
-    const dx = target.x - body.position.x;
-    const dy = target.y - body.position.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist < 0.001) {
-      bridgeCarryX[i] = 0;
-      Matter.Body.setVelocity(body, { x: 0, y: 0 });
-      Matter.Body.setAngularVelocity(body, 0);
-      continue;
-    }
-
-    const mag = Math.min(step, dist);
-    const mx = (dx / dist) * mag;
-    const my = (dy / dist) * mag;
-    Matter.Body.setPosition(body, { x: body.position.x + mx, y: body.position.y + my });
-    Matter.Body.setVelocity(body, { x: 0, y: 0 });
-    Matter.Body.setAngularVelocity(body, 0);
-    bridgeCarryX[i] = mx;
-  }
-}
-
-function updateDoor() {
-  if (!doorBody) {
-    levelCompleted = false;
-    completionFrames = 0;
-    return;
-  }
-  if (keyPoint && !doorUnlocked) {
-    levelCompleted = false;
-    completionFrames = 0;
-    return;
-  }
-
-  const activePlayers = playerSlots.filter((p): p is Player => Boolean(p));
-  if (activePlayers.length === 0) {
-    levelCompleted = false;
-    completionFrames = 0;
-    return;
-  }
-
-  const atDoor = activePlayers.filter(p => Matter.Query.collides(doorBody!, [p.body]).length > 0);
-  if (atDoor.length === activePlayers.length) {
-    completionFrames += 1;
-    if (completionFrames >= 15) levelCompleted = true;
-  } else {
-    completionFrames = 0;
-    levelCompleted = false;
-  }
-}
-
-function updateSpikes() {
-  if (spikeBodies.length === 0) return;
-  for (let slot = 0; slot < playerSlots.length; slot += 1) {
-    const player = playerSlots[slot];
-    if (!player) continue;
-    if (Matter.Query.collides(player.body, spikeBodies).length > 0) {
-      respawnAllPlayers();
-      return;
-    }
-  }
-}
 
 function clearLevelData() {
   for (const body of platformBodies) {
