@@ -619,6 +619,13 @@ function getSpawnForSlot(slot: number): { x: number; y: number } {
 
 function respawnPlayer(slot: number, player: Player) {
   ensureSpawn();
+  if (keyBody && keyCarrierSlot === slot) {
+    keyCarrierSlot = null;
+    const home = keyPoint ?? { x: player.body.position.x, y: player.body.position.y - 34 };
+    Matter.Body.setPosition(keyBody, { x: home.x, y: home.y });
+    Matter.Body.setVelocity(keyBody, { x: 0, y: 0 });
+    Matter.Body.setAngularVelocity(keyBody, 0);
+  }
   const spawn = getSpawnForSlot(slot);
   Matter.Body.setPosition(player.body, { x: spawn.x, y: spawn.y });
   Matter.Body.setVelocity(player.body, { x: 0, y: 0 });
