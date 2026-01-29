@@ -24,10 +24,11 @@ type LevelState = {
   platforms: LevelRect[];
   door: LevelRect | null;
   spawn: { x: number; y: number } | null;
+  key: { x: number; y: number } | null;
   spikes: LevelRect[];
 };
 
-export type EditorTool = 'platform' | 'door' | 'spawn' | 'spike' | 'erase';
+export type EditorTool = 'platform' | 'door' | 'spawn' | 'key' | 'spike' | 'erase';
 
 export type GameApi = {
   toggleEditor: () => boolean;
@@ -49,6 +50,10 @@ let platformBodies: Matter.Body[] = [];
 let doorRect: LevelRect | null = null;
 let doorBody: Matter.Body | null = null;
 let spawnPoint: { x: number; y: number } | null = null;
+let keyPoint: { x: number; y: number } | null = null;
+let keyBody: Matter.Body | null = null;
+let keyCarrierSlot: number | null = null;
+let doorUnlocked = false;
 let spikeRects: LevelRect[] = [];
 let spikeBodies: Matter.Body[] = [];
 let levelCompleted = false;
@@ -107,6 +112,7 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
   loadLevelFromStorage();
   ensureDoor();
   ensureSpawn();
+  ensureKey();
 
   // Handle Gamepad connection
   const handleGamepadConnected = (e: GamepadEvent) => {
@@ -169,6 +175,10 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     }
     if (editorTool === 'spawn') {
       setSpawnPoint(p);
+      return;
+    }
+    if (editorTool === 'key') {
+      setKeyPoint(p);
       return;
     }
     dragStart = p;
@@ -249,7 +259,9 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     },
     getEditorTool: () => editorTool,
     exportLevel: () =>
-      JSON.stringify({ platforms: levelRects, door: doorRect, spawn: spawnPoint, spikes: spikeRects } satisfies LevelState),
+      JSON.stringify(
+        { platforms: levelRects, door: doorRect, spawn: spawnPoint, key: keyPoint, spikes: spikeRects } satisfies LevelState
+      ),
     importLevel: (json: string) => {
       loadLevelFromJson(json);
     },
@@ -268,6 +280,7 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
   const update = () => {
     updateInput();
     checkGrounding();
+    updateKey();
     updateDoor();
     updateSpikes();
     
@@ -374,7 +387,9 @@ function draw() {
     if (body.isStatic) {
       if (body.vertices) {
         if (body.label === 'door') {
-          ctx.fillStyle = levelCompleted ? '#00e676' : '#ffb300';
+          ctx.fillStyle = keyPoint && !doorUnlocked ? '#90a4ae' : levelCompleted ? '#00e676' : '#ffb300';
+        } else if (body.label === 'key') {
+          ctx.fillStyle = '#ffeb3b';
         } else if (body.label === 'spike') {
           ctx.fillStyle = '#e53935';
         } else {
@@ -496,6 +511,13 @@ function eraseAtPoint(p: { x: number; y: number }) {
       return;
     }
   }
+  if (keyBody) {
+    const hitKey = Matter.Query.point([keyBody], p);
+    if (hitKey.length > 0) {
+      removeKey();
+      return;
+    }
+  }
   if (doorBody) {
     const hitDoor = Matter.Query.point([doorBody], p);
     if (hitDoor.length > 0) {
@@ -517,6 +539,37 @@ function eraseAtPoint(p: { x: number; y: number }) {
 function setSpawnPoint(p: { x: number; y: number }) {
   spawnPoint = { x: p.x, y: p.y };
   persistLevel();
+}
+
+function setKeyPoint(p: { x: number; y: number }) {
+  if (keyBody) {
+    Composite.remove(engine.world, keyBody);
+    keyBody = null;
+  }
+  keyPoint = { x: p.x, y: p.y };
+  keyCarrierSlot = null;
+  doorUnlocked = false;
+  keyBody = Bodies.circle(keyPoint.x, keyPoint.y, 12, { isStatic: true, isSensor: true, label: 'key' });
+  Composite.add(engine.world, keyBody);
+  persistLevel();
+}
+
+function removeKey() {
+  if (keyBody) Composite.remove(engine.world, keyBody);
+  keyBody = null;
+  keyPoint = null;
+  keyCarrierSlot = null;
+  doorUnlocked = false;
+  persistLevel();
+}
+
+function ensureKey() {
+  if (!keyPoint) return;
+  if (keyBody) return;
+  doorUnlocked = false;
+  keyCarrierSlot = null;
+  keyBody = Bodies.circle(keyPoint.x, keyPoint.y, 12, { isStatic: true, isSensor: true, label: 'key' });
+  Composite.add(engine.world, keyBody);
 }
 
 function setDoor(rect: LevelRect) {
@@ -572,8 +625,47 @@ function respawnPlayer(slot: number, player: Player) {
   Matter.Body.setAngularVelocity(player.body, 0);
 }
 
+function updateKey() {
+  if (!keyBody) return;
+
+  if (keyCarrierSlot === null) {
+    for (let slot = 0; slot < playerSlots.length; slot += 1) {
+      const player = playerSlots[slot];
+      if (!player) continue;
+      if (Matter.Query.collides(keyBody!, [player.body]).length > 0) {
+        keyCarrierSlot = slot;
+        break;
+      }
+    }
+  }
+
+  if (keyCarrierSlot !== null) {
+    const carrier = playerSlots[keyCarrierSlot];
+    if (!carrier) {
+      keyCarrierSlot = null;
+      return;
+    }
+
+    Matter.Body.setPosition(keyBody, { x: carrier.body.position.x, y: carrier.body.position.y - 34 });
+    Matter.Body.setVelocity(keyBody, { x: 0, y: 0 });
+    Matter.Body.setAngularVelocity(keyBody, 0);
+
+    if (!doorUnlocked && doorBody && Matter.Query.collides(doorBody, [carrier.body]).length > 0) {
+      doorUnlocked = true;
+      Composite.remove(engine.world, keyBody);
+      keyBody = null;
+      keyCarrierSlot = null;
+    }
+  }
+}
+
 function updateDoor() {
   if (!doorBody) {
+    levelCompleted = false;
+    completionFrames = 0;
+    return;
+  }
+  if (keyPoint && !doorUnlocked) {
     levelCompleted = false;
     completionFrames = 0;
     return;
@@ -613,6 +705,13 @@ function clearLevelData() {
   }
   platformBodies = [];
   levelRects = [];
+  if (keyBody) {
+    Composite.remove(engine.world, keyBody);
+  }
+  keyBody = null;
+  keyPoint = null;
+  keyCarrierSlot = null;
+  doorUnlocked = false;
   for (const body of spikeBodies) {
     Composite.remove(engine.world, body);
   }
@@ -662,6 +761,13 @@ function loadLevelFromJson(json: string) {
   spikeBodies = [];
   spikeRects = [];
   spawnPoint = null;
+  if (keyBody) {
+    Composite.remove(engine.world, keyBody);
+  }
+  keyBody = null;
+  keyPoint = null;
+  keyCarrierSlot = null;
+  doorUnlocked = false;
   levelCompleted = false;
   completionFrames = 0;
 
@@ -690,6 +796,12 @@ function loadLevelFromJson(json: string) {
     spawnPoint = { x: snap(next.spawn.x), y: snap(next.spawn.y) };
   }
 
+  if (next.key) {
+    keyPoint = { x: snap(next.key.x), y: snap(next.key.y) };
+    keyBody = Bodies.circle(keyPoint.x, keyPoint.y, 12, { isStatic: true, isSensor: true, label: 'key' });
+    Composite.add(engine.world, keyBody);
+  }
+
   for (const r of next.spikes) {
     const body = Bodies.rectangle(r.x + r.w / 2, r.y + r.h / 2, r.w, r.h, {
       isStatic: true,
@@ -703,11 +815,12 @@ function loadLevelFromJson(json: string) {
 
   ensureDoor();
   ensureSpawn();
+  ensureKey();
   persistLevel();
 }
 
 function persistLevel() {
-  const state: LevelState = { platforms: levelRects, door: doorRect, spawn: spawnPoint, spikes: spikeRects };
+  const state: LevelState = { platforms: levelRects, door: doorRect, spawn: spawnPoint, key: keyPoint, spikes: spikeRects };
   localStorage.setItem(LEVEL_STORAGE_KEY, JSON.stringify(state));
 }
 
@@ -727,11 +840,11 @@ function parseLevelState(input: unknown): LevelState | null {
       if (!rect) return null;
       platforms.push(rect);
     }
-    return { platforms, door: null, spawn: null, spikes: [] };
+    return { platforms, door: null, spawn: null, key: null, spikes: [] };
   }
 
   if (!input || typeof input !== 'object') return null;
-  const obj = input as { platforms?: unknown; door?: unknown; spawn?: unknown; spikes?: unknown };
+  const obj = input as { platforms?: unknown; door?: unknown; spawn?: unknown; key?: unknown; spikes?: unknown };
   if (!Array.isArray(obj.platforms)) return null;
 
   const platforms: LevelRect[] = [];
@@ -752,6 +865,14 @@ function parseLevelState(input: unknown): LevelState | null {
     spawn = { x: s.x, y: s.y };
   }
 
+  let key: { x: number; y: number } | null = null;
+  if (obj.key !== null && obj.key !== undefined) {
+    if (!obj.key || typeof obj.key !== 'object') return null;
+    const k = obj.key as { x?: unknown; y?: unknown };
+    if (typeof k.x !== 'number' || typeof k.y !== 'number') return null;
+    key = { x: k.x, y: k.y };
+  }
+
   const spikes: LevelRect[] = [];
   if (obj.spikes !== null && obj.spikes !== undefined) {
     if (!Array.isArray(obj.spikes)) return null;
@@ -762,5 +883,5 @@ function parseLevelState(input: unknown): LevelState | null {
     }
   }
 
-  return { platforms, door, spawn, spikes };
+  return { platforms, door, spawn, key, spikes };
 }

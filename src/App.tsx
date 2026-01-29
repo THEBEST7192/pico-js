@@ -80,6 +80,17 @@ function App() {
             </button>
             <button
               type="button"
+              className={editorTool === 'key' ? 'active' : undefined}
+              onClick={() => {
+                const api = gameApiRef.current;
+                if (!api) return;
+                setEditorTool(api.setEditorTool('key'));
+              }}
+            >
+              Key
+            </button>
+            <button
+              type="button"
               className={editorTool === 'spawn' ? 'active' : undefined}
               onClick={() => {
                 const api = gameApiRef.current;
