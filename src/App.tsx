@@ -9,6 +9,8 @@ function App() {
   const [editorEnabled, setEditorEnabled] = useState(false);
   const [editorTool, setEditorTool] = useState<EditorTool>('platform');
   const [blockRequired, setBlockRequired] = useState(2);
+  const [levelWidth, setLevelWidth] = useState(0);
+  const [levelHeight, setLevelHeight] = useState(0);
 
   const downloadTextFile = (filename: string, text: string) => {
     const blob = new Blob([text], { type: 'application/json' });
@@ -45,6 +47,9 @@ function App() {
       setEditorEnabled(api.getEditorEnabled());
       setEditorTool(api.getEditorTool());
       setBlockRequired(api.getBlockRequired());
+      const size = api.getLevelSize();
+      setLevelWidth(size.width);
+      setLevelHeight(size.height);
       return () => {
         gameApiRef.current = null;
         destroy();
@@ -189,6 +194,46 @@ function App() {
           </div>
           <div className="sidebar-title">Level</div>
           <div className="sidebar-section">
+            <div className="level-size">
+              <div className="level-size-row">
+                <label>
+                  W
+                  <input
+                    type="number"
+                    value={levelWidth}
+                    onChange={(e) => {
+                      const next = Number(e.target.value);
+                      if (!Number.isFinite(next)) return;
+                      setLevelWidth(next);
+                    }}
+                  />
+                </label>
+                <label>
+                  H
+                  <input
+                    type="number"
+                    value={levelHeight}
+                    onChange={(e) => {
+                      const next = Number(e.target.value);
+                      if (!Number.isFinite(next)) return;
+                      setLevelHeight(next);
+                    }}
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const api = gameApiRef.current;
+                  if (!api) return;
+                  const size = api.setLevelSize(levelWidth, levelHeight);
+                  setLevelWidth(size.width);
+                  setLevelHeight(size.height);
+                }}
+              >
+                Apply Size
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => {
@@ -205,6 +250,9 @@ function App() {
                 const json = window.prompt('Paste Level JSON');
                 if (!json) return;
                 api.importLevel(json);
+                const size = api.getLevelSize();
+                setLevelWidth(size.width);
+                setLevelHeight(size.height);
               }}
             >
               Paste JSON
@@ -256,6 +304,9 @@ function App() {
               if (enabled) {
                 setEditorTool(api.getEditorTool());
                 setBlockRequired(api.getBlockRequired());
+                const size = api.getLevelSize();
+                setLevelWidth(size.width);
+                setLevelHeight(size.height);
               }
             }}
           >
@@ -274,12 +325,15 @@ function App() {
           if (!api || !file) return;
           const json = await file.text();
           api.importLevel(json);
+          const size = api.getLevelSize();
+          setLevelWidth(size.width);
+          setLevelHeight(size.height);
         }}
       />
         <canvas ref={canvasRef} />
         <div className="instructions">
           {editorEnabled
-            ? `EDITOR: Tool=${editorTool}. Drag to place (spawn: click). Right-click to delete.`
+            ? `EDITOR: Tool=${editorTool}. Drag to place (spawn: click). Right-click to delete. Middle-drag to pan. Scroll to pan. Alt+scroll pans sideways. Shift+scroll zooms.`
             : 'Connect up to 4 gamepads to play. Get everyone to the door.'}
         </div>
       </div>

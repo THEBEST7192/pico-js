@@ -20,7 +20,15 @@ type LevelRect = {
   h: number;
 };
 
+type LevelConfig = {
+  width: number;
+  height: number;
+};
+
+const CAMERA_SIZE: LevelConfig = { width: 960, height: 540 };
+
 type LevelState = {
+  config: LevelConfig;
   platforms: LevelRect[];
   door: LevelRect | null;
   spawn: { x: number; y: number } | null;
@@ -39,6 +47,8 @@ export type GameApi = {
   getEditorTool: () => EditorTool;
   setBlockRequired: (required: number) => number;
   getBlockRequired: () => number;
+  setLevelSize: (width: number, height: number) => LevelConfig;
+  getLevelSize: () => LevelConfig;
   exportLevel: () => string;
   importLevel: (json: string) => void;
   saveLevel: () => void;
@@ -57,6 +67,10 @@ let keyPoint: { x: number; y: number } | null = null;
 let keyBody: Matter.Body | null = null;
 let keyCarrierSlot: number | null = null;
 let doorUnlocked = false;
+let levelConfig: LevelConfig = { width: 0, height: 0 };
+let boundaryBodies: Matter.Body[] = [];
+let camera = { x: 0, y: 0 };
+let editorZoom = 1;
 let blockDefs: Array<LevelRect & { required: number }> = [];
 let blockBodies: Matter.Body[] = [];
 let blockPusherCounts: number[] = [];
@@ -67,17 +81,19 @@ let levelCompleted = false;
 let completionFrames = 0;
 let dragStart: { x: number; y: number } | null = null;
 let dragCurrent: { x: number; y: number } | null = null;
+let panLast: { x: number; y: number } | null = null;
 let mouseDownButton: number | null = null;
+const editorPanKeys = new Set<string>();
 
 export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => void; api: GameApi } {
   canvas = canvasElement;
   ctx = canvas.getContext('2d')!;
-  
-  // Set canvas size to 90% of viewport
-  const width = window.innerWidth * 0.9;
-  const height = window.innerHeight * 0.9;
-  canvas.width = width;
-  canvas.height = height;
+
+  canvas.width = CAMERA_SIZE.width;
+  canvas.height = CAMERA_SIZE.height;
+  levelConfig = { width: snap(CAMERA_SIZE.width), height: snap(CAMERA_SIZE.height) };
+  camera = { x: 0, y: 0 };
+  editorZoom = 1;
 
   // Create engine
   engine = Engine.create();
@@ -86,35 +102,7 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
   runner = Runner.create();
   Runner.run(runner, engine);
 
-  // Add walls
-  const wallThickness = 60;
-  const groundThickness = 40;
-  const ground = Bodies.rectangle(width / 2, height - groundThickness / 2, width + 10, groundThickness, {
-    isStatic: true,
-    label: 'ground',
-    friction: 0,
-    frictionStatic: 0
-  });
-  const leftWall = Bodies.rectangle(wallThickness / 2 - 20, height / 2, wallThickness, height, {
-    isStatic: true,
-    label: 'ground',
-    friction: 0,
-    frictionStatic: 0
-  });
-  const rightWall = Bodies.rectangle(width - wallThickness / 2 + 20, height / 2, wallThickness, height, {
-    isStatic: true,
-    label: 'ground',
-    friction: 0,
-    frictionStatic: 0
-  });
-  const ceiling = Bodies.rectangle(width / 2, wallThickness / 2 - 20, width + 10, wallThickness, {
-    isStatic: true,
-    label: 'ground',
-    friction: 0,
-    frictionStatic: 0
-  });
-  
-  Composite.add(engine.world, [ground, leftWall, rightWall, ceiling]);
+  rebuildBounds();
 
   loadLevelFromStorage();
   ensureDoor();
@@ -174,6 +162,10 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
   const handleMouseDown = (e: MouseEvent) => {
     if (!editorEnabled) return;
     mouseDownButton = e.button;
+    if (e.button === 1) {
+      panLast = toCanvasPointRaw(e);
+      return;
+    }
     if (e.button !== 0) return;
     const p = toCanvasPoint(e);
     if (editorTool === 'erase') {
@@ -194,14 +186,23 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
 
   const handleMouseMove = (e: MouseEvent) => {
     if (!editorEnabled) return;
+    if (mouseDownButton === 1 && panLast) {
+      const p = toCanvasPointRaw(e);
+      camera.x += (panLast.x - p.x) / editorZoom;
+      camera.y += (panLast.y - p.y) / editorZoom;
+      panLast = p;
+      clampCamera();
+      return;
+    }
     if (mouseDownButton !== 0) return;
     if (!dragStart) return;
     dragCurrent = toCanvasPoint(e);
   };
 
-  const handleMouseUp = (e: MouseEvent) => {
+  const handleMouseUp = () => {
     if (!editorEnabled) return;
     if (mouseDownButton !== 0) {
+      panLast = null;
       mouseDownButton = null;
       return;
     }
@@ -217,20 +218,19 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     dragCurrent = null;
 
     if (rect.w < GRID_SIZE || rect.h < GRID_SIZE) return;
-    const tool: EditorTool = e.shiftKey ? 'door' : editorTool;
-    if (tool === 'door') {
+    if (editorTool === 'door') {
       setDoor(rect);
       return;
     }
-    if (tool === 'platform') {
+    if (editorTool === 'platform') {
       addPlatform(rect);
       return;
     }
-    if (tool === 'block') {
+    if (editorTool === 'block') {
       addBlock(rect, blockRequired);
       return;
     }
-    if (tool === 'spike') {
+    if (editorTool === 'spike') {
       addSpike(rect);
       return;
     }
@@ -243,22 +243,78 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     eraseAtPoint(p);
   };
 
+  const handleWheel = (e: WheelEvent) => {
+    if (!editorEnabled) return;
+    e.preventDefault();
+
+    const mouseCanvas = toCanvasPointRawFromEvent(e);
+
+    if (e.shiftKey) {
+      const prevZoom = editorZoom;
+      const zoomFactor = Math.pow(1.0015, -e.deltaY);
+      const nextZoom = Math.max(0.25, Math.min(2.5, prevZoom * zoomFactor));
+      if (Math.abs(nextZoom - prevZoom) < 0.00001) return;
+
+      const worldX = mouseCanvas.x / prevZoom + camera.x;
+      const worldY = mouseCanvas.y / prevZoom + camera.y;
+      editorZoom = nextZoom;
+      camera.x = worldX - mouseCanvas.x / editorZoom;
+      camera.y = worldY - mouseCanvas.y / editorZoom;
+      clampCamera();
+      return;
+    }
+
+    let dx = e.deltaX;
+    let dy = e.deltaY;
+    if (e.altKey && dx === 0) {
+      dx = dy;
+      dy = 0;
+    }
+
+    camera.x += dx / editorZoom;
+    camera.y += dy / editorZoom;
+    clampCamera();
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (!editorEnabled) return;
+    if (
+      e.target instanceof HTMLElement &&
+      (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')
+    ) {
+      return;
+    }
+    editorPanKeys.add(e.key);
+  };
+
+  const handleKeyUp = (e: KeyboardEvent) => {
+    if (!editorEnabled) return;
+    editorPanKeys.delete(e.key);
+  };
+
   canvas.addEventListener('mousedown', handleMouseDown);
   canvas.addEventListener('mousemove', handleMouseMove);
   canvas.addEventListener('mouseup', handleMouseUp);
   canvas.addEventListener('contextmenu', handleContextMenu);
+  canvas.addEventListener('wheel', handleWheel, { passive: false });
+  window.addEventListener('keydown', handleKeyDown);
+  window.addEventListener('keyup', handleKeyUp);
 
   const api: GameApi = {
     toggleEditor: () => {
       editorEnabled = !editorEnabled;
       dragStart = null;
       dragCurrent = null;
+      panLast = null;
+      editorPanKeys.clear();
       return editorEnabled;
     },
     setEditorEnabled: (enabled: boolean) => {
       editorEnabled = enabled;
       dragStart = null;
       dragCurrent = null;
+      panLast = null;
+      editorPanKeys.clear();
       return editorEnabled;
     },
     getEditorEnabled: () => editorEnabled,
@@ -266,6 +322,8 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       editorTool = tool;
       dragStart = null;
       dragCurrent = null;
+      panLast = null;
+      editorPanKeys.clear();
       return editorTool;
     },
     getEditorTool: () => editorTool,
@@ -276,9 +334,19 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       return blockRequired;
     },
     getBlockRequired: () => blockRequired,
+    setLevelSize: (width: number, height: number) => {
+      const nextWidth = snap(Math.max(GRID_SIZE * 10, Math.round(width)));
+      const nextHeight = snap(Math.max(GRID_SIZE * 8, Math.round(height)));
+      levelConfig = { width: nextWidth, height: nextHeight };
+      rebuildBounds();
+      persistLevel();
+      return levelConfig;
+    },
+    getLevelSize: () => levelConfig,
     exportLevel: () =>
       JSON.stringify(
         {
+          config: levelConfig,
           platforms: levelRects,
           door: doorRect,
           spawn: spawnPoint,
@@ -309,6 +377,8 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     updateBlocks();
     updateDoor();
     updateSpikes();
+    updateCameraFollow();
+    updateEditorCameraPan();
     
     // Draw
     draw();
@@ -322,10 +392,13 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
   const destroy = () => {
     window.removeEventListener("gamepadconnected", handleGamepadConnected);
     window.removeEventListener("gamepaddisconnected", handleGamepadDisconnected);
+    window.removeEventListener('keydown', handleKeyDown);
+    window.removeEventListener('keyup', handleKeyUp);
     canvas.removeEventListener('mousedown', handleMouseDown);
     canvas.removeEventListener('mousemove', handleMouseMove);
     canvas.removeEventListener('mouseup', handleMouseUp);
     canvas.removeEventListener('contextmenu', handleContextMenu);
+    canvas.removeEventListener('wheel', handleWheel);
     Runner.stop(runner);
     Engine.clear(engine);
     playerSlots = [null, null, null, null];
@@ -371,6 +444,50 @@ function updateInput() {
   }
 }
 
+function updateCameraFollow() {
+  if (editorEnabled) return;
+  const activePlayers = playerSlots.filter((p): p is Player => Boolean(p));
+  if (activePlayers.length === 0) {
+    camera = { x: 0, y: 0 };
+    clampCamera();
+    return;
+  }
+
+  const avg = activePlayers.reduce(
+    (acc, p) => ({ x: acc.x + p.body.position.x, y: acc.y + p.body.position.y }),
+    { x: 0, y: 0 }
+  );
+  const centerX = avg.x / activePlayers.length;
+  const centerY = avg.y / activePlayers.length;
+  const targetX = centerX - canvas.width / 2;
+  const targetY = centerY - canvas.height / 2;
+
+  camera.x += (targetX - camera.x) * 0.12;
+  camera.y += (targetY - camera.y) * 0.12;
+  clampCamera();
+}
+
+function updateEditorCameraPan() {
+  if (!editorEnabled) return;
+  if (editorPanKeys.size === 0) return;
+
+  const speed = 14 / editorZoom;
+  const has = (k: string) => editorPanKeys.has(k);
+
+  let dx = 0;
+  let dy = 0;
+
+  if (has('ArrowLeft') || has('a') || has('A')) dx -= speed;
+  if (has('ArrowRight') || has('d') || has('D')) dx += speed;
+  if (has('ArrowUp') || has('w') || has('W')) dy -= speed;
+  if (has('ArrowDown') || has('s') || has('S')) dy += speed;
+
+  if (dx === 0 && dy === 0) return;
+  camera.x += dx;
+  camera.y += dy;
+  clampCamera();
+}
+
 function checkGrounding() {
   // Simple grounding check using Matter.Query
   playerSlots.forEach(player => {
@@ -409,6 +526,11 @@ function draw() {
 
   // Draw static bodies (walls/platforms)
   const bodies = Composite.allBodies(engine.world);
+  const zoom = editorEnabled ? editorZoom : 1;
+  ctx.save();
+  ctx.scale(zoom, zoom);
+  ctx.translate(-camera.x, -camera.y);
+
   bodies.forEach(body => {
     if (body.isStatic || body.label === 'block') {
       if (body.vertices) {
@@ -456,7 +578,6 @@ function draw() {
     }
   });
 
-  // Draw players
   playerSlots.forEach(player => {
     if (!player) return;
     player.draw(ctx);
@@ -478,6 +599,8 @@ function draw() {
     }
   }
 
+  ctx.restore();
+
   if (levelCompleted) {
     ctx.fillStyle = '#ffffff';
     ctx.font = '48px sans-serif';
@@ -493,13 +616,85 @@ function toCanvasPoint(e: MouseEvent): { x: number; y: number } {
   const rect = canvas.getBoundingClientRect();
   const scaleX = canvas.width / rect.width;
   const scaleY = canvas.height / rect.height;
+  const zoom = editorEnabled ? editorZoom : 1;
   const x = (e.clientX - rect.left) * scaleX;
   const y = (e.clientY - rect.top) * scaleY;
-  return { x: snap(x), y: snap(y) };
+  const worldX = x / zoom + camera.x;
+  const worldY = y / zoom + camera.y;
+  return { x: snap(worldX), y: snap(worldY) };
+}
+
+function toCanvasPointRaw(e: MouseEvent): { x: number; y: number } {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (e.clientX - rect.left) * scaleX;
+  const y = (e.clientY - rect.top) * scaleY;
+  return { x, y };
+}
+
+function toCanvasPointRawFromEvent(e: MouseEvent | WheelEvent): { x: number; y: number } {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const x = (e.clientX - rect.left) * scaleX;
+  const y = (e.clientY - rect.top) * scaleY;
+  return { x, y };
 }
 
 function snap(value: number): number {
   return Math.round(value / GRID_SIZE) * GRID_SIZE;
+}
+
+function clampCamera() {
+  const zoom = editorEnabled ? editorZoom : 1;
+  const viewWidth = canvas.width / zoom;
+  const viewHeight = canvas.height / zoom;
+  const maxX = Math.max(0, levelConfig.width - viewWidth);
+  const maxY = Math.max(0, levelConfig.height - viewHeight);
+  camera.x = Math.max(0, Math.min(maxX, camera.x));
+  camera.y = Math.max(0, Math.min(maxY, camera.y));
+}
+
+function rebuildBounds() {
+  for (const body of boundaryBodies) {
+    Composite.remove(engine.world, body);
+  }
+  boundaryBodies = [];
+
+  const wallThickness = 60;
+  const groundThickness = 40;
+  const w = levelConfig.width;
+  const h = levelConfig.height;
+
+  const ground = Bodies.rectangle(w / 2, h - groundThickness / 2, w + 10, groundThickness, {
+    isStatic: true,
+    label: 'ground',
+    friction: 0,
+    frictionStatic: 0
+  });
+  const leftWall = Bodies.rectangle(wallThickness / 2 - 20, h / 2, wallThickness, h, {
+    isStatic: true,
+    label: 'ground',
+    friction: 0,
+    frictionStatic: 0
+  });
+  const rightWall = Bodies.rectangle(w - wallThickness / 2 + 20, h / 2, wallThickness, h, {
+    isStatic: true,
+    label: 'ground',
+    friction: 0,
+    frictionStatic: 0
+  });
+  const ceiling = Bodies.rectangle(w / 2, wallThickness / 2 - 20, w + 10, wallThickness, {
+    isStatic: true,
+    label: 'ground',
+    friction: 0,
+    frictionStatic: 0
+  });
+
+  boundaryBodies = [ground, leftWall, rightWall, ceiling];
+  Composite.add(engine.world, boundaryBodies);
+  clampCamera();
 }
 
 function normalizeRect(a: { x: number; y: number }, b: { x: number; y: number }): LevelRect {
@@ -679,8 +874,8 @@ function removeDoor() {
 function ensureDoor() {
   if (doorBody) return;
   const defaultRect: LevelRect = {
-    x: snap(canvas.width - 100),
-    y: snap(canvas.height - 120),
+    x: snap(levelConfig.width - 100),
+    y: snap(levelConfig.height - 120),
     w: snap(40),
     h: snap(80)
   };
@@ -689,7 +884,7 @@ function ensureDoor() {
 
 function ensureSpawn() {
   if (spawnPoint) return;
-  spawnPoint = { x: snap(80), y: snap(canvas.height - 140) };
+  spawnPoint = { x: snap(80), y: snap(levelConfig.height - 140) };
   persistLevel();
 }
 
@@ -870,6 +1065,12 @@ function loadLevelFromJson(json: string) {
   const next = parseLevelState(parsed);
   if (!next) return;
 
+  levelConfig = {
+    width: snap(next.config.width),
+    height: snap(next.config.height)
+  };
+  rebuildBounds();
+
   for (const body of platformBodies) {
     Composite.remove(engine.world, body);
   }
@@ -945,6 +1146,7 @@ function loadLevelFromJson(json: string) {
     });
     blockDefs.push({ ...rect, required: clamped });
     blockBodies.push(body);
+    blockPusherCounts.push(0);
     Composite.add(engine.world, body);
   }
 
@@ -967,6 +1169,7 @@ function loadLevelFromJson(json: string) {
 
 function persistLevel() {
   const state: LevelState = {
+    config: levelConfig,
     platforms: levelRects,
     door: doorRect,
     spawn: spawnPoint,
@@ -993,12 +1196,29 @@ function parseLevelState(input: unknown): LevelState | null {
       if (!rect) return null;
       platforms.push(rect);
     }
-    return { platforms, door: null, spawn: null, key: null, blocks: [], spikes: [] };
+    return { config: levelConfig, platforms, door: null, spawn: null, key: null, blocks: [], spikes: [] };
   }
 
   if (!input || typeof input !== 'object') return null;
-  const obj = input as { platforms?: unknown; door?: unknown; spawn?: unknown; key?: unknown; blocks?: unknown; spikes?: unknown };
+  const obj = input as {
+    config?: unknown;
+    platforms?: unknown;
+    door?: unknown;
+    spawn?: unknown;
+    key?: unknown;
+    blocks?: unknown;
+    spikes?: unknown;
+  };
   if (!Array.isArray(obj.platforms)) return null;
+
+  let config: LevelConfig = levelConfig;
+  if (obj.config !== null && obj.config !== undefined) {
+    if (!obj.config || typeof obj.config !== 'object') return null;
+    const c = obj.config as { width?: unknown; height?: unknown };
+    if (typeof c.width !== 'number' || typeof c.height !== 'number') return null;
+    if (c.width <= 0 || c.height <= 0) return null;
+    config = { width: c.width, height: c.height };
+  }
 
   const platforms: LevelRect[] = [];
   for (const item of obj.platforms) {
@@ -1049,5 +1269,5 @@ function parseLevelState(input: unknown): LevelState | null {
     }
   }
 
-  return { platforms, door, spawn, key, blocks, spikes };
+  return { config, platforms, door, spawn, key, blocks, spikes };
 }
