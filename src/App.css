@@ -14,6 +14,7 @@
   flex-direction: row;
   align-items: stretch;
   justify-content: stretch;
+  min-height: 0;
 }
 
 canvas {
@@ -29,6 +30,7 @@ canvas {
   align-items: center;
   justify-content: center;
   position: relative;
+  min-height: 0;
 }
 
 .sidebar {
@@ -39,6 +41,13 @@ canvas {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 0 0 220px;
+  max-height: 100vh;
+  box-sizing: border-box;
 }
 
 .sidebar-title {
@@ -72,6 +81,30 @@ canvas {
 .sidebar button.active {
   border-color: rgba(100, 108, 255, 0.8);
   background: rgba(100, 108, 255, 0.2);
+}
+
+.block-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.block-settings-label {
+  font-family: sans-serif;
+  color: #ffffff;
+  font-size: 14px;
+  opacity: 0.75;
+}
+
+.block-settings-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.sidebar button.mini {
+  padding: 6px 8px;
+  text-align: center;
+  flex: 1;
 }
 
 .hud {

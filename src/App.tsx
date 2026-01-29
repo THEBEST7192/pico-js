@@ -102,6 +102,57 @@ function App() {
             >
               Block ({blockRequired}p)
             </button>
+            {editorTool === 'block' && (
+              <div className="block-settings">
+                <div className="block-settings-label">Required pushers</div>
+                <div className="block-settings-buttons">
+                  <button
+                    type="button"
+                    className={blockRequired === 1 ? 'active mini' : 'mini'}
+                    onClick={() => {
+                      const api = gameApiRef.current;
+                      if (!api) return;
+                      setBlockRequired(api.setBlockRequired(1));
+                    }}
+                  >
+                    1p
+                  </button>
+                  <button
+                    type="button"
+                    className={blockRequired === 2 ? 'active mini' : 'mini'}
+                    onClick={() => {
+                      const api = gameApiRef.current;
+                      if (!api) return;
+                      setBlockRequired(api.setBlockRequired(2));
+                    }}
+                  >
+                    2p
+                  </button>
+                  <button
+                    type="button"
+                    className={blockRequired === 3 ? 'active mini' : 'mini'}
+                    onClick={() => {
+                      const api = gameApiRef.current;
+                      if (!api) return;
+                      setBlockRequired(api.setBlockRequired(3));
+                    }}
+                  >
+                    3p
+                  </button>
+                  <button
+                    type="button"
+                    className={blockRequired === 4 ? 'active mini' : 'mini'}
+                    onClick={() => {
+                      const api = gameApiRef.current;
+                      if (!api) return;
+                      setBlockRequired(api.setBlockRequired(4));
+                    }}
+                  >
+                    4p
+                  </button>
+                </div>
+              </div>
+            )}
             <button
               type="button"
               className={editorTool === 'spawn' ? 'active' : undefined}
@@ -135,54 +186,6 @@ function App() {
             >
               Erase
             </button>
-            {editorTool === 'block' && (
-              <>
-                <button
-                  type="button"
-                  className={blockRequired === 1 ? 'active' : undefined}
-                  onClick={() => {
-                    const api = gameApiRef.current;
-                    if (!api) return;
-                    setBlockRequired(api.setBlockRequired(1));
-                  }}
-                >
-                  1p
-                </button>
-                <button
-                  type="button"
-                  className={blockRequired === 2 ? 'active' : undefined}
-                  onClick={() => {
-                    const api = gameApiRef.current;
-                    if (!api) return;
-                    setBlockRequired(api.setBlockRequired(2));
-                  }}
-                >
-                  2p
-                </button>
-                <button
-                  type="button"
-                  className={blockRequired === 3 ? 'active' : undefined}
-                  onClick={() => {
-                    const api = gameApiRef.current;
-                    if (!api) return;
-                    setBlockRequired(api.setBlockRequired(3));
-                  }}
-                >
-                  3p
-                </button>
-                <button
-                  type="button"
-                  className={blockRequired === 4 ? 'active' : undefined}
-                  onClick={() => {
-                    const api = gameApiRef.current;
-                    if (!api) return;
-                    setBlockRequired(api.setBlockRequired(4));
-                  }}
-                >
-                  4p
-                </button>
-              </>
-            )}
           </div>
           <div className="sidebar-title">Level</div>
           <div className="sidebar-section">
