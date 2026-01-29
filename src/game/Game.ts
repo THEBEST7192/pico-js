@@ -1207,19 +1207,51 @@ function getSpawnForSlot(slot: number): { x: number; y: number } {
   return { x: base.x + slot * 60, y: base.y };
 }
 
-function respawnPlayer(slot: number, player: Player) {
-  ensureSpawn();
-  if (keyBody && keyCarrierSlot === slot) {
-    keyCarrierSlot = null;
-    const home = keyPoint ?? { x: player.body.position.x, y: player.body.position.y - 34 };
-    Matter.Body.setPosition(keyBody, { x: home.x, y: home.y });
+function resetOnDeath() {
+  levelCompleted = false;
+  completionFrames = 0;
+  doorUnlocked = false;
+
+  if (keyPoint) {
+    if (!keyBody) {
+      keyBody = Bodies.circle(keyPoint.x, keyPoint.y, 12, { isStatic: true, isSensor: true, label: 'key' });
+      Composite.add(engine.world, keyBody);
+    }
+    Matter.Body.setPosition(keyBody, { x: keyPoint.x, y: keyPoint.y });
     Matter.Body.setVelocity(keyBody, { x: 0, y: 0 });
     Matter.Body.setAngularVelocity(keyBody, 0);
+    keyCarrierSlot = null;
+  } else {
+    if (keyBody) Composite.remove(engine.world, keyBody);
+    keyBody = null;
+    keyCarrierSlot = null;
   }
-  const spawn = getSpawnForSlot(slot);
-  Matter.Body.setPosition(player.body, { x: spawn.x, y: spawn.y });
-  Matter.Body.setVelocity(player.body, { x: 0, y: 0 });
-  Matter.Body.setAngularVelocity(player.body, 0);
+
+  for (let i = 0; i < bridgeBodies.length; i += 1) {
+    bridgeActivated[i] = false;
+    bridgeLatched[i] = false;
+    bridgeCarryX[i] = 0;
+
+    const body = bridgeBodies[i];
+    const home = bridgeHomeCenters[i];
+    if (!body || !home) continue;
+    Matter.Body.setPosition(body, { x: home.x, y: home.y });
+    Matter.Body.setVelocity(body, { x: 0, y: 0 });
+    Matter.Body.setAngularVelocity(body, 0);
+  }
+}
+
+function respawnAllPlayers() {
+  resetOnDeath();
+  ensureSpawn();
+  for (let slot = 0; slot < playerSlots.length; slot += 1) {
+    const player = playerSlots[slot];
+    if (!player) continue;
+    const spawn = getSpawnForSlot(slot);
+    Matter.Body.setPosition(player.body, { x: spawn.x, y: spawn.y });
+    Matter.Body.setVelocity(player.body, { x: 0, y: 0 });
+    Matter.Body.setAngularVelocity(player.body, 0);
+  }
 }
 
 function updateKey() {
@@ -1395,7 +1427,8 @@ function updateSpikes() {
     const player = playerSlots[slot];
     if (!player) continue;
     if (Matter.Query.collides(player.body, spikeBodies).length > 0) {
-      respawnPlayer(slot, player);
+      respawnAllPlayers();
+      return;
     }
   }
 }
