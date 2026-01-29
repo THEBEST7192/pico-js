@@ -68,6 +68,19 @@ canvas {
   gap: 8px;
 }
 
+.undo-redo-row {
+  display: flex;
+  gap: 8px;
+}
+
+.sidebar button.undo-redo-button {
+  flex: 1;
+  text-align: center;
+  padding: 8px 10px;
+  font-size: 18px;
+  line-height: 1;
+}
+
 .sidebar button {
   padding: 10px 12px;
   border-radius: 10px;

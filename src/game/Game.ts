@@ -49,6 +49,8 @@ export type GameApi = {
   getBlockRequired: () => number;
   setLevelSize: (width: number, height: number) => LevelConfig;
   getLevelSize: () => LevelConfig;
+  undo: () => boolean;
+  redo: () => boolean;
   exportLevel: () => string;
   importLevel: (json: string) => void;
   saveLevel: () => void;
@@ -84,6 +86,9 @@ let dragCurrent: { x: number; y: number } | null = null;
 let panLast: { x: number; y: number } | null = null;
 let mouseDownButton: number | null = null;
 const editorPanKeys = new Set<string>();
+let undoStack: string[] = [];
+let redoStack: string[] = [];
+let suppressHistory = false;
 
 export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => void; api: GameApi } {
   canvas = canvasElement;
@@ -104,10 +109,15 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
 
   rebuildBounds();
 
+  suppressHistory = true;
   loadLevelFromStorage();
   ensureDoor();
   ensureSpawn();
   ensureKey();
+  suppressHistory = false;
+  undoStack = [];
+  redoStack = [];
+  pushHistorySnapshot();
 
   // Handle Gamepad connection
   const handleGamepadConnected = (e: GamepadEvent) => {
@@ -276,6 +286,29 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     clampCamera();
   };
 
+  const performUndo = () => {
+    if (undoStack.length <= 1) return false;
+    const current = undoStack.pop();
+    if (!current) return false;
+    redoStack.push(current);
+    const prev = undoStack[undoStack.length - 1];
+    if (!prev) return false;
+    suppressHistory = true;
+    loadLevelFromJson(prev);
+    suppressHistory = false;
+    return true;
+  };
+
+  const performRedo = () => {
+    const next = redoStack.pop();
+    if (!next) return false;
+    undoStack.push(next);
+    suppressHistory = true;
+    loadLevelFromJson(next);
+    suppressHistory = false;
+    return true;
+  };
+
   const handleKeyDown = (e: KeyboardEvent) => {
     if (!editorEnabled) return;
     if (
@@ -284,6 +317,24 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     ) {
       return;
     }
+
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault();
+      if (e.shiftKey) {
+        performRedo();
+      } else {
+        performUndo();
+      }
+      return;
+    }
+
+    if (mod && (e.key === 'y' || e.key === 'Y')) {
+      e.preventDefault();
+      performRedo();
+      return;
+    }
+
     editorPanKeys.add(e.key);
   };
 
@@ -343,6 +394,8 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       return levelConfig;
     },
     getLevelSize: () => levelConfig,
+    undo: () => performUndo(),
+    redo: () => performRedo(),
     exportLevel: () =>
       JSON.stringify(
         {
@@ -1045,7 +1098,7 @@ function clearLevelData() {
   spawnPoint = null;
   levelCompleted = false;
   completionFrames = 0;
-  localStorage.removeItem(LEVEL_STORAGE_KEY);
+  persistLevel();
 }
 
 function loadLevelFromStorage() {
@@ -1167,8 +1220,8 @@ function loadLevelFromJson(json: string) {
   persistLevel();
 }
 
-function persistLevel() {
-  const state: LevelState = {
+function buildLevelState(): LevelState {
+  return {
     config: levelConfig,
     platforms: levelRects,
     door: doorRect,
@@ -1177,7 +1230,22 @@ function persistLevel() {
     blocks: blockDefs,
     spikes: spikeRects
   };
+}
+
+function pushHistorySnapshot() {
+  if (suppressHistory) return;
+  const json = JSON.stringify(buildLevelState());
+  const last = undoStack.length > 0 ? undoStack[undoStack.length - 1] : null;
+  if (last === json) return;
+  undoStack.push(json);
+  redoStack = [];
+  if (undoStack.length > 250) undoStack = undoStack.slice(-250);
+}
+
+function persistLevel() {
+  const state = buildLevelState();
   localStorage.setItem(LEVEL_STORAGE_KEY, JSON.stringify(state));
+  pushHistorySnapshot();
 }
 
 function parseLevelState(input: unknown): LevelState | null {

@@ -63,6 +63,30 @@ function App() {
         <div className="sidebar">
           <div className="sidebar-title">Editor</div>
           <div className="sidebar-section">
+            <div className="undo-redo-row">
+              <button
+                type="button"
+                onClick={() => {
+                  gameApiRef.current?.undo();
+                }}
+                aria-label="Undo"
+                title="Undo (Ctrl/Cmd+Z)"
+                className="undo-redo-button"
+              >
+                ↶
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  gameApiRef.current?.redo();
+                }}
+                aria-label="Redo"
+                title="Redo (Ctrl/Cmd+Y, Ctrl/Cmd+Shift+Z)"
+                className="undo-redo-button"
+              >
+                ↷
+              </button>
+            </div>
             <button
               type="button"
               className={editorTool === 'platform' ? 'active' : undefined}
