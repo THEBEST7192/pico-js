@@ -13,6 +13,15 @@ import { updateBridges as sysUpdateBridges } from './systems/bridges';
 import { updateDoor as sysUpdateDoor } from './systems/door';
 import { updateKey as sysUpdateKey } from './systems/key';
 import { updateSpikes as sysUpdateSpikes } from './systems/spikes';
+import { addPlatform as addPlatformEnt } from './entities/platform';
+import { addBlock as addBlockEnt } from './entities/block';
+import { addBridge as addBridgeEnt } from './entities/bridge';
+import { addSpike as addSpikeEnt } from './entities/spike';
+import { setSpawnPoint as setSpawnPointEnt, ensureSpawn as ensureSpawnEnt, getSpawnForSlot as getSpawnForSlotEnt } from './entities/spawn';
+import { setKeyPoint as setKeyPointEnt, ensureKey as ensureKeyEnt } from './entities/key';
+import { setDoor as setDoorEnt, ensureDoor as ensureDoorEnt } from './entities/door';
+import { handleButtonClick as handleButtonClickEditor } from './editor/buttons';
+import { eraseAtPoint as eraseAtPointEditor } from './editor/erase';
 import { Player } from './Player';
 
 const { Engine, Runner, Bodies, Composite } = Matter;
@@ -41,8 +50,8 @@ type LevelConfig = {
 
 const CAMERA_SIZE: LevelConfig = { width: 960, height: 540 };
 
-type BridgeDef = LevelRect & { id: number; dx: number; dy: number; distance: number; permanent: boolean };
-type ButtonDef = LevelRect & { id: number; targetBridgeId: number | null };
+export type BridgeDef = LevelRect & { id: number; dx: number; dy: number; distance: number; permanent: boolean };
+export type ButtonDef = LevelRect & { id: number; targetBridgeId: number | null };
 
 type LevelState = {
   config: LevelConfig;
@@ -129,6 +138,11 @@ let undoStack: string[] = [];
 let redoStack: string[] = [];
 let suppressHistory = false;
 
+function setDoorRectLocal(rect: LevelRect) {
+  doorRect = rect;
+  doorBody = setDoorEnt(rect, engine);
+}
+
 export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => void; api: GameApi } {
   canvas = canvasElement;
   ctx = canvas.getContext('2d')!;
@@ -150,9 +164,13 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
 
   suppressHistory = true;
   loadLevelFromStorage();
-  ensureDoor();
-  ensureSpawn();
-  ensureKey();
+  const setDoorRectLocal = (rect: LevelRect) => {
+    doorRect = rect;
+    doorBody = setDoorEnt(rect, engine);
+  };
+  ensureDoorEnt(doorBody, levelConfig, snap, setDoorRectLocal);
+  spawnPoint = ensureSpawnEnt(spawnPoint, levelConfig, snap);
+  keyBody = ensureKeyEnt(engine, keyPoint, keyBody);
   suppressHistory = false;
   undoStack = [];
   redoStack = [];
@@ -187,7 +205,7 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     if (playerSlots[slot]) return;
 
     console.log(`Player ${gp.index} connected!`);
-    const spawn = getSpawnForSlot(slot);
+    const spawn = getSpawnForSlotEnt(slot, spawnPoint, canvas, snap);
     const newPlayer = new Player(
       gp.index,
       gp.id,
@@ -218,19 +236,67 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     if (e.button !== 0) return;
     const p = toCanvasPoint(e);
     if (editorTool === 'button') {
-      handleButtonClick(p);
+      const res = handleButtonClickEditor(
+        p,
+        buttonBodies,
+        buttonDefs,
+        bridgeBodies,
+        bridgeDefs,
+        snap,
+        nextEntityId,
+        engine,
+        persistLevel,
+        buttonLinkingId
+      );
+      buttonLinkingId = res.buttonLinkingId;
+      nextEntityId = res.nextEntityId;
       return;
     }
     if (editorTool === 'erase') {
-      eraseAtPoint(p);
+      const res = eraseAtPointEditor(
+        p,
+        engine,
+        spawnPoint,
+        keyBody,
+        doorBody,
+        buttonBodies,
+        buttonDefs,
+        buttonPressed,
+        bridgeBodies,
+        bridgeDefs,
+        bridgeActivated,
+        bridgeLatched,
+        bridgeHomeCenters,
+        bridgeCarryX,
+        blockBodies,
+        blockDefs,
+        blockPusherCounts,
+        spikeBodies,
+        spikeRects,
+        platformBodies,
+        levelRects,
+        persistLevel,
+        buttonLinkingId
+      );
+      spawnPoint = res.spawnPoint;
+      keyBody = res.keyBody;
+      doorBody = res.doorBody;
+      doorRect = res.doorRect;
+      buttonLinkingId = res.buttonLinkingId;
       return;
     }
     if (editorTool === 'spawn') {
-      setSpawnPoint(p);
+      spawnPoint = setSpawnPointEnt(p);
+      persistLevel();
       return;
     }
     if (editorTool === 'key') {
-      setKeyPoint(p);
+      const res = setKeyPointEnt(p, engine, keyBody, keyCarrierSlot, doorUnlocked);
+      keyPoint = res.keyPoint;
+      keyBody = res.keyBody;
+      keyCarrierSlot = res.keyCarrierSlot;
+      doorUnlocked = res.doorUnlocked;
+      persistLevel();
       return;
     }
     dragStart = p;
@@ -272,23 +338,43 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
 
     if (rect.w < GRID_SIZE || rect.h < GRID_SIZE) return;
     if (editorTool === 'door') {
-      setDoor(rect);
+      if (doorBody) {
+        Composite.remove(engine.world, doorBody);
+        doorBody = null;
+      }
+      doorRect = rect;
+      doorBody = setDoorEnt(rect, engine);
+      persistLevel();
       return;
     }
     if (editorTool === 'platform') {
-      addPlatform(rect);
+      addPlatformEnt(rect, platformBodies, levelRects, engine, persistLevel);
       return;
     }
     if (editorTool === 'block') {
-      addBlock(rect, blockRequired);
+      addBlockEnt(rect, blockRequired, blockDefs, blockBodies, blockPusherCounts, engine, persistLevel);
       return;
     }
     if (editorTool === 'bridge') {
-      addBridge(rect);
+      nextEntityId = addBridgeEnt(
+        rect,
+        bridgeMove,
+        bridgeDistance,
+        bridgePermanent,
+        nextEntityId,
+        bridgeDefs,
+        bridgeBodies,
+        bridgeActivated,
+        bridgeLatched,
+        bridgeHomeCenters,
+        bridgeCarryX,
+        engine,
+        persistLevel
+      );
       return;
     }
     if (editorTool === 'spike') {
-      addSpike(rect);
+      addSpikeEnt(rect, spikeRects, spikeBodies, engine, persistLevel);
       return;
     }
   };
@@ -297,7 +383,36 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     if (!editorEnabled) return;
     e.preventDefault();
     const p = toCanvasPoint(e);
-    eraseAtPoint(p);
+    const res = eraseAtPointEditor(
+      p,
+      engine,
+      spawnPoint,
+      keyBody,
+      doorBody,
+      buttonBodies,
+      buttonDefs,
+      buttonPressed,
+      bridgeBodies,
+      bridgeDefs,
+      bridgeActivated,
+      bridgeLatched,
+      bridgeHomeCenters,
+      bridgeCarryX,
+      blockBodies,
+      blockDefs,
+      blockPusherCounts,
+      spikeBodies,
+      spikeRects,
+      platformBodies,
+      levelRects,
+      persistLevel,
+      buttonLinkingId
+    );
+    spawnPoint = res.spawnPoint;
+    keyBody = res.keyBody;
+    doorBody = res.doorBody;
+    doorRect = res.doorRect;
+    buttonLinkingId = res.buttonLinkingId;
   };
 
   const handleWheel = (e: WheelEvent) => {
@@ -917,312 +1032,7 @@ function normalizeRect(a: { x: number; y: number }, b: { x: number; y: number })
   return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
 }
 
-function addPlatform(rect: LevelRect) {
-  const body = Bodies.rectangle(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h, {
-    isStatic: true,
-    label: 'platform'
-  });
-  levelRects.push(rect);
-  platformBodies.push(body);
-  Composite.add(engine.world, body);
-  persistLevel();
-}
 
-function addBlock(rect: LevelRect, required: number) {
-  const clamped = Math.max(1, Math.min(4, Math.round(required)));
-  const body = Bodies.rectangle(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h, {
-    label: 'block',
-    friction: 0,
-    frictionStatic: 0,
-    frictionAir: 0.02,
-    inertia: Infinity
-  });
-  blockDefs.push({ ...rect, required: clamped });
-  blockBodies.push(body);
-  blockPusherCounts.push(0);
-  Composite.add(engine.world, body);
-  persistLevel();
-}
-
-function addBridge(rect: LevelRect) {
-  const dx = bridgeMove.dx;
-  const dy = bridgeMove.dy;
-  const id = nextEntityId;
-  nextEntityId += 1;
-  const distance = bridgeDistance;
-  const def: BridgeDef = { ...rect, id, dx, dy, distance, permanent: bridgePermanent };
-  const body = Bodies.rectangle(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h, {
-    isStatic: true,
-    label: 'bridge'
-  });
-  bridgeDefs.push(def);
-  bridgeBodies.push(body);
-  bridgeActivated.push(false);
-  bridgeLatched.push(false);
-  bridgeHomeCenters.push({ x: body.position.x, y: body.position.y });
-  bridgeCarryX.push(0);
-  Composite.add(engine.world, body);
-  persistLevel();
-}
-
-function addButton(p: { x: number; y: number }) {
-  const w = snap(40);
-  const h = snap(20);
-  const x = snap(p.x - w / 2);
-  const y = snap(p.y - h / 2);
-  const id = nextEntityId;
-  nextEntityId += 1;
-  const def: ButtonDef = { x, y, w, h, id, targetBridgeId: null };
-  const body = Bodies.rectangle(x + w / 2, y + h / 2, w, h, {
-    isStatic: true,
-    isSensor: true,
-    label: 'button'
-  });
-  buttonDefs.push(def);
-  buttonBodies.push(body);
-  buttonPressed.push(false);
-  Composite.add(engine.world, body);
-  persistLevel();
-  return id;
-}
-
-function handleButtonClick(p: { x: number; y: number }) {
-  const hitButtons = Matter.Query.point(buttonBodies, p);
-  if (hitButtons.length > 0) {
-    const idx = buttonBodies.indexOf(hitButtons[0]);
-    const def = idx >= 0 ? buttonDefs[idx] : undefined;
-    if (def) {
-      buttonLinkingId = def.id;
-      persistLevel();
-      return;
-    }
-  }
-
-  if (buttonLinkingId === null) {
-    buttonLinkingId = addButton(p);
-    return;
-  }
-
-  const hitBridges = Matter.Query.point(bridgeBodies, p);
-  if (hitBridges.length > 0) {
-    const idx = bridgeBodies.indexOf(hitBridges[0]);
-    const bridge = idx >= 0 ? bridgeDefs[idx] : undefined;
-    if (bridge) {
-      const btn = buttonDefs.find(b => b.id === buttonLinkingId);
-      if (btn) btn.targetBridgeId = bridge.id;
-      buttonLinkingId = null;
-      persistLevel();
-      return;
-    }
-  }
-
-  buttonLinkingId = null;
-  persistLevel();
-}
-
-function removeBridgeBody(body: Matter.Body) {
-  const idx = bridgeBodies.indexOf(body);
-  if (idx === -1) return;
-  const id = bridgeDefs[idx]?.id;
-  Composite.remove(engine.world, body);
-  bridgeBodies.splice(idx, 1);
-  bridgeDefs.splice(idx, 1);
-  bridgeActivated.splice(idx, 1);
-  bridgeLatched.splice(idx, 1);
-  bridgeHomeCenters.splice(idx, 1);
-  bridgeCarryX.splice(idx, 1);
-  if (id !== undefined) {
-    for (let i = 0; i < buttonDefs.length; i += 1) {
-      if (buttonDefs[i].targetBridgeId === id) {
-        buttonDefs[i].targetBridgeId = null;
-      }
-    }
-  }
-  persistLevel();
-}
-
-function removeButtonBody(body: Matter.Body) {
-  const idx = buttonBodies.indexOf(body);
-  if (idx === -1) return;
-  const id = buttonDefs[idx]?.id;
-  Composite.remove(engine.world, body);
-  buttonBodies.splice(idx, 1);
-  buttonDefs.splice(idx, 1);
-  buttonPressed.splice(idx, 1);
-  if (buttonLinkingId === id) buttonLinkingId = null;
-  persistLevel();
-}
-
-function addSpike(rect: LevelRect) {
-  const body = Bodies.rectangle(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h, {
-    isStatic: true,
-    isSensor: true,
-    label: 'spike'
-  });
-  spikeRects.push(rect);
-  spikeBodies.push(body);
-  Composite.add(engine.world, body);
-  persistLevel();
-}
-
-function removePlatformBody(body: Matter.Body) {
-  const idx = platformBodies.indexOf(body);
-  if (idx === -1) return;
-  Composite.remove(engine.world, body);
-  platformBodies.splice(idx, 1);
-  levelRects.splice(idx, 1);
-  persistLevel();
-}
-
-function removeBlockBody(body: Matter.Body) {
-  const idx = blockBodies.indexOf(body);
-  if (idx === -1) return;
-  Composite.remove(engine.world, body);
-  blockBodies.splice(idx, 1);
-  blockDefs.splice(idx, 1);
-  blockPusherCounts.splice(idx, 1);
-  persistLevel();
-}
-
-function removeSpikeBody(body: Matter.Body) {
-  const idx = spikeBodies.indexOf(body);
-  if (idx === -1) return;
-  Composite.remove(engine.world, body);
-  spikeBodies.splice(idx, 1);
-  spikeRects.splice(idx, 1);
-  persistLevel();
-}
-
-function eraseAtPoint(p: { x: number; y: number }) {
-  if (spawnPoint) {
-    const dx = p.x - spawnPoint.x;
-    const dy = p.y - spawnPoint.y;
-    if (dx * dx + dy * dy <= 18 * 18) {
-      spawnPoint = null;
-      persistLevel();
-      return;
-    }
-  }
-  if (keyBody) {
-    const hitKey = Matter.Query.point([keyBody], p);
-    if (hitKey.length > 0) {
-      removeKey();
-      return;
-    }
-  }
-  if (doorBody) {
-    const hitDoor = Matter.Query.point([doorBody], p);
-    if (hitDoor.length > 0) {
-      removeDoor();
-      return;
-    }
-  }
-  const hitButtons = Matter.Query.point(buttonBodies, p);
-  if (hitButtons.length > 0) {
-    removeButtonBody(hitButtons[0]);
-    return;
-  }
-  const hitBridges = Matter.Query.point(bridgeBodies, p);
-  if (hitBridges.length > 0) {
-    removeBridgeBody(hitBridges[0]);
-    return;
-  }
-  const hitBlocks = Matter.Query.point(blockBodies, p);
-  if (hitBlocks.length > 0) {
-    removeBlockBody(hitBlocks[0]);
-    return;
-  }
-  const hitSpikes = Matter.Query.point(spikeBodies, p);
-  if (hitSpikes.length > 0) {
-    removeSpikeBody(hitSpikes[0]);
-    return;
-  }
-  const hitPlatforms = Matter.Query.point(platformBodies, p);
-  if (hitPlatforms.length > 0) {
-    removePlatformBody(hitPlatforms[0]);
-  }
-}
-
-function setSpawnPoint(p: { x: number; y: number }) {
-  spawnPoint = { x: p.x, y: p.y };
-  persistLevel();
-}
-
-function setKeyPoint(p: { x: number; y: number }) {
-  if (keyBody) {
-    Composite.remove(engine.world, keyBody);
-    keyBody = null;
-  }
-  keyPoint = { x: p.x, y: p.y };
-  keyCarrierSlot = null;
-  doorUnlocked = false;
-  keyBody = Bodies.circle(keyPoint.x, keyPoint.y, 12, { isStatic: true, isSensor: true, label: 'key' });
-  Composite.add(engine.world, keyBody);
-  persistLevel();
-}
-
-function removeKey() {
-  if (keyBody) Composite.remove(engine.world, keyBody);
-  keyBody = null;
-  keyPoint = null;
-  keyCarrierSlot = null;
-  doorUnlocked = false;
-  persistLevel();
-}
-
-function ensureKey() {
-  if (!keyPoint) return;
-  if (keyBody) return;
-  doorUnlocked = false;
-  keyCarrierSlot = null;
-  keyBody = Bodies.circle(keyPoint.x, keyPoint.y, 12, { isStatic: true, isSensor: true, label: 'key' });
-  Composite.add(engine.world, keyBody);
-}
-
-function setDoor(rect: LevelRect) {
-  if (doorBody) {
-    Composite.remove(engine.world, doorBody);
-    doorBody = null;
-  }
-  doorRect = rect;
-  doorBody = Bodies.rectangle(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h, {
-    isStatic: true,
-    isSensor: true,
-    label: 'door'
-  });
-  Composite.add(engine.world, doorBody);
-  persistLevel();
-}
-
-function removeDoor() {
-  if (!doorBody) return;
-  Composite.remove(engine.world, doorBody);
-  doorBody = null;
-  doorRect = null;
-  persistLevel();
-}
-
-function ensureDoor() {
-  if (doorBody) return;
-  const defaultRect: LevelRect = {
-    x: snap(levelConfig.width - 100),
-    y: snap(levelConfig.height - 120),
-    w: snap(40),
-    h: snap(80)
-  };
-  setDoor(defaultRect);
-}
-
-function ensureSpawn() {
-  if (spawnPoint) return;
-  spawnPoint = { x: snap(80), y: snap(levelConfig.height - 140) };
-  persistLevel();
-}
-
-function getSpawnForSlot(slot: number): { x: number; y: number } {
-  const base = spawnPoint ?? { x: snap(80), y: snap(canvas.height - 140) };
-  return { x: base.x + slot * 60, y: base.y };
-}
 
 function resetOnDeath() {
   levelCompleted = false;
@@ -1260,11 +1070,11 @@ function resetOnDeath() {
 
 function respawnAllPlayers() {
   resetOnDeath();
-  ensureSpawn();
+  spawnPoint = ensureSpawnEnt(spawnPoint, levelConfig, snap);
   for (let slot = 0; slot < playerSlots.length; slot += 1) {
     const player = playerSlots[slot];
     if (!player) continue;
-    const spawn = getSpawnForSlot(slot);
+    const spawn = getSpawnForSlotEnt(slot, spawnPoint, canvas, snap);
     Matter.Body.setPosition(player.body, { x: spawn.x, y: spawn.y });
     Matter.Body.setVelocity(player.body, { x: 0, y: 0 });
     Matter.Body.setAngularVelocity(player.body, 0);
@@ -1494,9 +1304,9 @@ function loadLevelFromJson(json: string) {
   for (const br of bridgeDefs) nextEntityId = Math.max(nextEntityId, br.id + 1);
   for (const btn of buttonDefs) nextEntityId = Math.max(nextEntityId, btn.id + 1);
 
-  ensureDoor();
-  ensureSpawn();
-  ensureKey();
+  ensureDoorEnt(doorBody, levelConfig, snap, setDoorRectLocal);
+  spawnPoint = ensureSpawnEnt(spawnPoint, levelConfig, snap);
+  keyBody = ensureKeyEnt(engine, keyPoint, keyBody);
   persistLevel();
 }
 
