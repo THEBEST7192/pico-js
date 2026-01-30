@@ -35,6 +35,7 @@ let ctx: CanvasRenderingContext2D;
 const PLAYER_COLORS = ['#ff4d4d', '#4dff4d', '#4d4dff', '#ffff4d'];
 const LEVEL_STORAGE_KEY = 'pico_level_v1';
 const GRID_SIZE = 20;
+const LEAVE_HOLD_FRAMES = 90;
 
 export type LevelRect = {
   x: number;
@@ -145,8 +146,23 @@ let redoStack: string[] = [];
 let suppressHistory = false;
 let paused = false;
 const lastMenuPressed: boolean[] = [false, false, false, false];
+const lastBackPressed: boolean[] = [false, false, false, false];
+const backHoldFrames: number[] = [0, 0, 0, 0];
 let keyboardPlayerSlot: number | null = null;
 const keyboardState = { left: false, right: false, jump: false };
+let keyboardLeavePressed = false;
+
+function addPlayer(gp: Gamepad) {
+  if (playerSlots.some(p => p?.gamepadIndex === gp.index || (p && p.gamepadId === gp.id))) return;
+  const firstEmptySlot = playerSlots.findIndex(p => p === null);
+  const slot = firstEmptySlot;
+  if (slot === -1 || slot === undefined || slot < 0 || slot > 3) return;
+  if (playerSlots[slot]) return;
+  const spawn = getSpawnForSlotEnt(slot, spawnPoint, canvas, snap);
+  const newPlayer = new Player(gp.index, gp.id, spawn.x, spawn.y, PLAYER_COLORS[slot]);
+  playerSlots[slot] = newPlayer;
+  Composite.add(engine.world, newPlayer.body);
+}
 
 function setDoorRectLocal(rect: LevelRect) {
   doorRect = rect;
@@ -509,16 +525,8 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     }
     if (!editorEnabled) {
       if (e.key === 'Backspace') {
-        if (keyboardPlayerSlot !== null) {
-          const player = playerSlots[keyboardPlayerSlot];
-          if (player) Composite.remove(engine.world, player.body);
-          playerSlots[keyboardPlayerSlot] = null;
-          keyboardPlayerSlot = null;
-          keyboardState.left = false;
-          keyboardState.right = false;
-          keyboardState.jump = false;
-          return;
-        }
+        keyboardLeavePressed = true;
+        return;
       }
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === ' ') {
         e.preventDefault();
@@ -564,6 +572,7 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       if (e.key === 'ArrowLeft') keyboardState.left = false;
       if (e.key === 'ArrowRight') keyboardState.right = false;
       if (e.key === ' ') keyboardState.jump = false;
+      if (e.key === 'Backspace') keyboardLeavePressed = false;
       return;
     }
     if (e.key === 'a' || e.key === 'A' || e.key === 'd' || e.key === 'D' || e.key === 'w' || e.key === 'W' || e.key === 's' || e.key === 'S') {
@@ -751,6 +760,15 @@ function updateInput() {
   const gamepads = navigator.getGamepads();
   const usedIndices = new Set<number>();
 
+  // Allow joining by pressing Jump on any connected controller
+  for (const gp of gamepads) {
+    if (!gp) continue;
+    const alreadyJoined = playerSlots.some(p => p && p.gamepadId === gp.id && p.gamepadIndex === gp.index);
+    if (alreadyJoined) continue;
+    const jumpPressed = Boolean(gp.buttons[0]?.pressed);
+    if (jumpPressed) addPlayer(gp);
+  }
+
   for (const player of playerSlots) {
     if (!player) continue;
 
@@ -758,10 +776,24 @@ function updateInput() {
     if (direct && direct.id === player.gamepadId) {
       usedIndices.add(direct.index);
       const menuPressed = Boolean(direct.buttons[9]?.pressed) || Boolean(direct.buttons[16]?.pressed);
+      const backPressed = Boolean(direct.buttons[8]?.pressed);
       const slot = playerSlots.indexOf(player);
       if (slot >= 0) {
         if (menuPressed && !lastMenuPressed[slot]) togglePause();
         lastMenuPressed[slot] = menuPressed;
+        if (backPressed) {
+          backHoldFrames[slot] += 1;
+          if (backHoldFrames[slot] >= LEAVE_HOLD_FRAMES) {
+            Composite.remove(engine.world, player.body);
+            playerSlots[slot] = null;
+            backHoldFrames[slot] = 0;
+            lastBackPressed[slot] = false;
+            continue;
+          }
+        } else {
+          backHoldFrames[slot] = 0;
+        }
+        lastBackPressed[slot] = backPressed;
       }
       if (!paused) player.handleInput(direct);
       continue;
@@ -780,10 +812,24 @@ function updateInput() {
       player.gamepadIndex = best.index;
       usedIndices.add(best.index);
       const menuPressed = Boolean(best.buttons[9]?.pressed) || Boolean(best.buttons[16]?.pressed);
+      const backPressed = Boolean(best.buttons[8]?.pressed);
       const slot = playerSlots.indexOf(player);
       if (slot >= 0) {
         if (menuPressed && !lastMenuPressed[slot]) togglePause();
         lastMenuPressed[slot] = menuPressed;
+        if (backPressed) {
+          backHoldFrames[slot] += 1;
+          if (backHoldFrames[slot] >= LEAVE_HOLD_FRAMES) {
+            Composite.remove(engine.world, player.body);
+            playerSlots[slot] = null;
+            backHoldFrames[slot] = 0;
+            lastBackPressed[slot] = false;
+            continue;
+          }
+        } else {
+          backHoldFrames[slot] = 0;
+        }
+        lastBackPressed[slot] = backPressed;
       }
       if (!paused) player.handleInput(best);
       continue;
@@ -792,10 +838,24 @@ function updateInput() {
     if (direct && !usedIndices.has(direct.index)) {
       usedIndices.add(direct.index);
       const menuPressed = Boolean(direct.buttons[9]?.pressed) || Boolean(direct.buttons[16]?.pressed);
+      const backPressed = Boolean(direct.buttons[8]?.pressed);
       const slot = playerSlots.indexOf(player);
       if (slot >= 0) {
         if (menuPressed && !lastMenuPressed[slot]) togglePause();
         lastMenuPressed[slot] = menuPressed;
+        if (backPressed) {
+          backHoldFrames[slot] += 1;
+          if (backHoldFrames[slot] >= LEAVE_HOLD_FRAMES) {
+            Composite.remove(engine.world, player.body);
+            playerSlots[slot] = null;
+            backHoldFrames[slot] = 0;
+            lastBackPressed[slot] = false;
+            continue;
+          }
+        } else {
+          backHoldFrames[slot] = 0;
+        }
+        lastBackPressed[slot] = backPressed;
       }
       if (!paused) player.handleInput(direct);
     }
@@ -810,6 +870,22 @@ function updateInput() {
         buttons: [{ pressed: keyboardState.jump }]
       };
       p.handleInput(gpLike);
+      const slot = keyboardPlayerSlot;
+      if (keyboardLeavePressed) {
+        backHoldFrames[slot] += 1;
+        if (backHoldFrames[slot] >= LEAVE_HOLD_FRAMES) {
+          Composite.remove(engine.world, p.body);
+          playerSlots[slot] = null;
+          keyboardPlayerSlot = null;
+          backHoldFrames[slot] = 0;
+          keyboardLeavePressed = false;
+          keyboardState.left = false;
+          keyboardState.right = false;
+          keyboardState.jump = false;
+        }
+      } else {
+        backHoldFrames[slot] = 0;
+      }
     }
   }
 }
@@ -1037,6 +1113,21 @@ function draw() {
   playerSlots.forEach(player => {
     if (!player) return;
     player.draw(ctx);
+    const slot = playerSlots.indexOf(player);
+    const progress = slot >= 0 ? Math.min(1, backHoldFrames[slot] / LEAVE_HOLD_FRAMES) : 0;
+    if (progress > 0) {
+      const { x, y } = player.body.position;
+      const width = 40;
+      const height = 6;
+      const pad = 10;
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillRect(x - width / 2, y - 30 - pad, width, height);
+      ctx.fillStyle = '#e53935';
+      ctx.fillRect(x - width / 2, y - 30 - pad, width * progress, height);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x - width / 2, y - 30 - pad, width, height);
+    }
   });
 
   if (spawnPoint) {

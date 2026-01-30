@@ -535,7 +535,7 @@ function App() {
               <span>Keyboard: Join with Arrow keys/Space, Move: ←/→, Jump: Space, Leave: Backspace, Pause: Esc</span>
               <br />
               <span>
-                Controllers (Xbox/PS): Join: connect your controller and press any button, Move with Left Stick, Jump: <img src={AIcon} alt="A" style={{ height: 18, verticalAlign: 'middle' }} /> / <img src={CrossIcon} alt="Cross" style={{ height: 18, verticalAlign: 'middle' }} />, Pause: Menu
+                Controllers (Xbox/PS): Join: press any button, Leave: hold Back, Move with Left Stick, Jump: <img src={AIcon} alt="A" style={{ height: 18, verticalAlign: 'middle' }} /> / <img src={CrossIcon} alt="Cross" style={{ height: 18, verticalAlign: 'middle' }} />, Pause: Menu
               </span>
             </>
           )}
