@@ -137,6 +137,8 @@ const editorPanKeys = new Set<string>();
 let undoStack: string[] = [];
 let redoStack: string[] = [];
 let suppressHistory = false;
+let paused = false;
+const lastMenuPressed: boolean[] = [false, false, false, false];
 
 function setDoorRectLocal(rect: LevelRect) {
   doorRect = rect;
@@ -472,6 +474,11 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      togglePause();
+      return;
+    }
     if (!editorEnabled) return;
     if (
       e.target instanceof HTMLElement &&
@@ -618,6 +625,12 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
   // Game Loop
   const update = () => {
     updateInput();
+    if (paused) {
+      draw();
+      drawPauseOverlay();
+      requestAnimationFrame(update);
+      return;
+    }
     checkGrounding();
     {
       const next = sysUpdateKey(engine, keyBody, keyCarrierSlot, playerSlots, doorUnlocked, doorBody);
@@ -674,7 +687,13 @@ function updateInput() {
     const direct = gamepads[player.gamepadIndex];
     if (direct && direct.id === player.gamepadId) {
       usedIndices.add(direct.index);
-      player.handleInput(direct);
+      const menuPressed = Boolean(direct.buttons[9]?.pressed) || Boolean(direct.buttons[16]?.pressed);
+      const slot = playerSlots.indexOf(player);
+      if (slot >= 0) {
+        if (menuPressed && !lastMenuPressed[slot]) togglePause();
+        lastMenuPressed[slot] = menuPressed;
+      }
+      if (!paused) player.handleInput(direct);
       continue;
     }
 
@@ -690,13 +709,25 @@ function updateInput() {
 
       player.gamepadIndex = best.index;
       usedIndices.add(best.index);
-      player.handleInput(best);
+      const menuPressed = Boolean(best.buttons[9]?.pressed) || Boolean(best.buttons[16]?.pressed);
+      const slot = playerSlots.indexOf(player);
+      if (slot >= 0) {
+        if (menuPressed && !lastMenuPressed[slot]) togglePause();
+        lastMenuPressed[slot] = menuPressed;
+      }
+      if (!paused) player.handleInput(best);
       continue;
     }
 
     if (direct && !usedIndices.has(direct.index)) {
       usedIndices.add(direct.index);
-      player.handleInput(direct);
+      const menuPressed = Boolean(direct.buttons[9]?.pressed) || Boolean(direct.buttons[16]?.pressed);
+      const slot = playerSlots.indexOf(player);
+      if (slot >= 0) {
+        if (menuPressed && !lastMenuPressed[slot]) togglePause();
+        lastMenuPressed[slot] = menuPressed;
+      }
+      if (!paused) player.handleInput(direct);
     }
   }
 }
@@ -957,6 +988,20 @@ function draw() {
   }
 }
 
+function drawPauseOverlay() {
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '40px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('Paused', canvas.width / 2, canvas.height / 2 - 30);
+  ctx.font = '20px sans-serif';
+  ctx.fillText('Press Esc or Menu to resume', canvas.width / 2, canvas.height / 2 + 20);
+  ctx.restore();
+}
+
 function toCanvasPoint(e: MouseEvent): { x: number; y: number } {
   const rect = canvas.getBoundingClientRect();
   const scaleX = canvas.width / rect.width;
@@ -999,6 +1044,15 @@ function clampCamera() {
   const maxY = Math.max(0, levelConfig.height - viewHeight);
   camera.x = Math.max(0, Math.min(maxX, camera.x));
   camera.y = Math.max(0, Math.min(maxY, camera.y));
+}
+
+function togglePause() {
+  paused = !paused;
+  if (paused) {
+    Runner.stop(runner);
+  } else {
+    Runner.run(runner, engine);
+  }
 }
 
 function rebuildBounds() {
