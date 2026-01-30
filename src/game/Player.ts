@@ -27,7 +27,7 @@ export class Player {
     });
   }
 
-  handleInput(gp: Gamepad) {
+  handleInput(gp: { axes: ReadonlyArray<number>; buttons: ReadonlyArray<{ pressed: boolean }> }) {
     // Movement (Left Stick X)
     const moveX = gp.axes[0];
     this.moveAxisX = moveX;

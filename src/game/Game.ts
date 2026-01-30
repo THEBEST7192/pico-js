@@ -139,6 +139,8 @@ let redoStack: string[] = [];
 let suppressHistory = false;
 let paused = false;
 const lastMenuPressed: boolean[] = [false, false, false, false];
+let keyboardPlayerSlot: number | null = null;
+const keyboardState = { left: false, right: false, jump: false };
 
 function setDoorRectLocal(rect: LevelRect) {
   doorRect = rect;
@@ -216,6 +218,25 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       PLAYER_COLORS[slot]
     );
     playerSlots[slot] = newPlayer;
+    Composite.add(engine.world, newPlayer.body);
+  };
+
+  const addKeyboardPlayer = () => {
+    if (keyboardPlayerSlot !== null) return;
+    const firstEmptySlot = playerSlots.findIndex(p => p === null);
+    const slot = firstEmptySlot;
+    if (slot === -1 || slot === undefined || slot < 0 || slot > 3) return;
+    if (playerSlots[slot]) return;
+    const spawn = getSpawnForSlotEnt(slot, spawnPoint, canvas, snap);
+    const newPlayer = new Player(
+      -1,
+      'keyboard',
+      spawn.x,
+      spawn.y,
+      PLAYER_COLORS[slot]
+    );
+    playerSlots[slot] = newPlayer;
+    keyboardPlayerSlot = slot;
     Composite.add(engine.world, newPlayer.body);
   };
 
@@ -479,7 +500,29 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       togglePause();
       return;
     }
-    if (!editorEnabled) return;
+    if (!editorEnabled) {
+      if (e.key === 'Backspace') {
+        if (keyboardPlayerSlot !== null) {
+          const player = playerSlots[keyboardPlayerSlot];
+          if (player) Composite.remove(engine.world, player.body);
+          playerSlots[keyboardPlayerSlot] = null;
+          keyboardPlayerSlot = null;
+          keyboardState.left = false;
+          keyboardState.right = false;
+          keyboardState.jump = false;
+          return;
+        }
+      }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === ' ') {
+        e.preventDefault();
+        addKeyboardPlayer();
+        if (e.key === 'ArrowLeft') keyboardState.left = true;
+        if (e.key === 'ArrowRight') keyboardState.right = true;
+        if (e.key === ' ') keyboardState.jump = true;
+        return;
+      }
+      return;
+    }
     if (
       e.target instanceof HTMLElement &&
       (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')
@@ -504,12 +547,21 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       return;
     }
 
-    editorPanKeys.add(e.key);
+    if (e.key === 'a' || e.key === 'A' || e.key === 'd' || e.key === 'D' || e.key === 'w' || e.key === 'W' || e.key === 's' || e.key === 'S') {
+      editorPanKeys.add(e.key);
+    }
   };
 
   const handleKeyUp = (e: KeyboardEvent) => {
-    if (!editorEnabled) return;
-    editorPanKeys.delete(e.key);
+    if (!editorEnabled) {
+      if (e.key === 'ArrowLeft') keyboardState.left = false;
+      if (e.key === 'ArrowRight') keyboardState.right = false;
+      if (e.key === ' ') keyboardState.jump = false;
+      return;
+    }
+    if (e.key === 'a' || e.key === 'A' || e.key === 'd' || e.key === 'D' || e.key === 'w' || e.key === 'W' || e.key === 's' || e.key === 'S') {
+      editorPanKeys.delete(e.key);
+    }
   };
 
   canvas.addEventListener('mousedown', handleMouseDown);
@@ -730,6 +782,18 @@ function updateInput() {
       if (!paused) player.handleInput(direct);
     }
   }
+
+  if (keyboardPlayerSlot !== null) {
+    const p = playerSlots[keyboardPlayerSlot];
+    if (p && !paused) {
+      const axisX = (keyboardState.left ? -1 : 0) + (keyboardState.right ? 1 : 0);
+      const gpLike = {
+        axes: [axisX],
+        buttons: [{ pressed: keyboardState.jump }]
+      };
+      p.handleInput(gpLike);
+    }
+  }
 }
 
 function updateCameraFollow() {
@@ -765,10 +829,10 @@ function updateEditorCameraPan() {
   let dx = 0;
   let dy = 0;
 
-  if (has('ArrowLeft') || has('a') || has('A')) dx -= speed;
-  if (has('ArrowRight') || has('d') || has('D')) dx += speed;
-  if (has('ArrowUp') || has('w') || has('W')) dy -= speed;
-  if (has('ArrowDown') || has('s') || has('S')) dy += speed;
+  if (has('a') || has('A')) dx -= speed;
+  if (has('d') || has('D')) dx += speed;
+  if (has('w') || has('W')) dy -= speed;
+  if (has('s') || has('S')) dy += speed;
 
   if (dx === 0 && dy === 0) return;
   camera.x += dx;

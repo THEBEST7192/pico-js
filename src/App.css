@@ -208,3 +208,13 @@ canvas {
   font-family: sans-serif;
   pointer-events: none;
 }
+
+.goal {
+  position: absolute;
+  bottom: 10px;
+  right: 12px;
+  color: #ffffff;
+  font-family: sans-serif;
+  opacity: 0.9;
+  pointer-events: none;
+}

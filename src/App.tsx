@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { initGame, type EditorTool, type GameApi } from './game/Game';
+import AIcon from './assets/a-filled.svg';
+import CrossIcon from './assets/plain-cross.svg';
 import './App.css';
 
 function App() {
@@ -465,10 +467,23 @@ function App() {
       />
         <canvas ref={canvasRef} />
         <div className="instructions">
-          {editorEnabled
-            ? `EDITOR: Tool=${editorTool}. Drag to place (spawn: click, button: click then click bridge). Right-click to delete. Middle-drag to pan. Scroll to pan. Alt+scroll pans sideways. Shift+scroll zooms.`
-            : 'Connect up to 4 gamepads to play. Get everyone to the door.'}
+          {editorEnabled ? (
+            `EDITOR: Tool=${editorTool}. Drag to place (spawn: click, button: click then click bridge). Right-click to delete. Middle-drag to pan. Scroll to pan. Alt+scroll pans sideways. Shift+scroll zooms. Pan with WASD.`
+          ) : (
+            <>
+              <span>Keyboard: Join with Arrow keys/Space, Move: ←/→, Jump: Space, Leave: Backspace, Pause: Esc</span>
+              <br />
+              <span>
+                Controllers (Xbox/PS): Join: connect your controller and press any button, Move with Left Stick, Jump: <img src={AIcon} alt="A" style={{ height: 18, verticalAlign: 'middle' }} /> / <img src={CrossIcon} alt="Cross" style={{ height: 18, verticalAlign: 'middle' }} />, Pause: Menu
+              </span>
+            </>
+          )}
         </div>
+        {!editorEnabled && (
+          <div className="goal">
+            Up to 4 players. Get everyone to the door.
+          </div>
+        )}
       </div>
     </div>
   );
