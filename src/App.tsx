@@ -477,7 +477,12 @@ function App() {
             <button
               type="button"
               onClick={() => {
-                gameApiRef.current?.clearLevel();
+                const api = gameApiRef.current;
+                if (!api) return;
+                api.clearLevel();
+                const size = api.getLevelSize();
+                setLevelWidth(size.width);
+                setLevelHeight(size.height);
               }}
             >
               Clear Level

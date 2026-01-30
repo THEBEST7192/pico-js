@@ -1349,6 +1349,8 @@ function respawnAllPlayers() {
 
 
 function clearLevelData() {
+  levelConfig = { width: snap(CAMERA_SIZE.width), height: snap(CAMERA_SIZE.height) };
+  rebuildBounds();
   for (const body of platformBodies) {
     Composite.remove(engine.world, body);
   }
@@ -1397,6 +1399,12 @@ function clearLevelData() {
   levelCompleted = false;
   completionFrames = 0;
   nextEntityId = 1;
+  const setDoorRectLocal = (rect: LevelRect) => {
+    doorRect = rect;
+    doorBody = setDoorEnt(rect, engine);
+  };
+  ensureDoorEnt(doorBody, levelConfig, snap, setDoorRectLocal);
+  spawnPoint = ensureSpawnEnt(spawnPoint, levelConfig, snap);
   persistLevel();
 }
 
