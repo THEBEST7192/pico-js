@@ -9,7 +9,6 @@ export class Player {
   private jumpPower = 12;
   private moveSpeed = 5;
   private canJump = false;
-  private carryX = 0;
   private pushSlowdown = 1;
 
   constructor(gamepadIndex: number, gamepadId: string, x: number, y: number, color: string) {
@@ -33,7 +32,7 @@ export class Player {
     this.moveAxisX = moveX;
     const inputX = Math.abs(moveX) > 0.2 ? moveX * this.moveSpeed * this.pushSlowdown : 0;
     Matter.Body.setVelocity(this.body, {
-      x: this.carryX + inputX,
+      x: inputX,
       y: this.body.velocity.y
     });
 
@@ -48,9 +47,8 @@ export class Player {
     }
   }
 
-  update(isGrounded: boolean, canJump: boolean = isGrounded, carryX: number = 0, pushSlowdown: number = 1) {
+  update(isGrounded: boolean, canJump: boolean = isGrounded, pushSlowdown: number = 1) {
     this.canJump = canJump;
-    this.carryX = carryX;
     this.pushSlowdown = pushSlowdown;
   }
 

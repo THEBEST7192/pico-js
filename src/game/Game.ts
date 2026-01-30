@@ -882,6 +882,11 @@ function checkGrounding() {
       const idx = bridgeBodies.indexOf(bridgeBelow);
       carryX = idx >= 0 ? bridgeCarryX[idx] ?? 0 : 0;
     }
+    if (isGrounded && bridgeBelow && carryX !== 0) {
+      Matter.Body.setPosition(player.body, { x: player.body.position.x + carryX, y: player.body.position.y });
+      Matter.Body.setVelocity(player.body, { x: player.body.velocity.x, y: player.body.velocity.y });
+      Matter.Body.setAngularVelocity(player.body, 0);
+    }
     const pushingBlock =
       blockBodies.some(b => {
         if (Matter.Query.collides(player.body, [b]).length === 0) return false;
@@ -892,7 +897,7 @@ function checkGrounding() {
         return false;
       });
     const pushSlowdown = pushingBlock ? 0.6 : 1;
-    player.update(isGrounded, isGrounded && !hasPlayerAbove, carryX, pushSlowdown);
+    player.update(isGrounded, isGrounded && !hasPlayerAbove, pushSlowdown);
   });
 }
 
