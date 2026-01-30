@@ -4,7 +4,7 @@ import type { LevelRect } from '../Game';
 
 export function updateBlocks(
   blockBodies: Body[],
-  blockDefs: Array<LevelRect & { required: number }>,
+  blockDefs: Array<LevelRect & { required?: number; allowedPlayer?: number }>,
   playerSlots: Array<Player | null>,
   blockPusherCounts: number[],
   engine: Engine,
@@ -22,9 +22,11 @@ export function updateBlocks(
     const pushers = new Set<number>();
     const rightPushers = new Set<number>();
     const leftPushers = new Set<number>();
+    const allowedPlayer = def.allowedPlayer;
     for (let slot = 0; slot < playerSlots.length; slot += 1) {
       const player = playerSlots[slot];
       if (!player) continue;
+      if (allowedPlayer !== undefined && slot !== allowedPlayer) continue;
       if (Math.abs(player.moveAxisX) < 0.2) continue;
       if (Matter.Query.collides(body, [player.body]).length === 0) continue;
 
@@ -66,7 +68,10 @@ export function updateBlocks(
     if (leftPushers.size > 0) propagate(leftPushers, -1);
 
     blockPusherCounts[i] = pushers.size;
-    const shouldMove = pushers.size >= def.required;
+    const shouldMove =
+      allowedPlayer !== undefined
+        ? pushers.size > 0
+        : pushers.size >= (def.required ?? 1);
     const groundCandidates = allBodies.filter(
       b => b !== body && supportLabels.has(b.label)
     );

@@ -11,6 +11,8 @@ function App() {
   const [editorEnabled, setEditorEnabled] = useState(false);
   const [editorTool, setEditorTool] = useState<EditorTool>('platform');
   const [blockRequired, setBlockRequired] = useState(2);
+  const [blockRuleMode, setBlockRuleMode] = useState<'required' | 'allowed'>('required');
+  const [blockAllowedPlayer, setBlockAllowedPlayer] = useState(0);
   const [levelWidth, setLevelWidth] = useState(0);
   const [levelHeight, setLevelHeight] = useState(0);
   const [bridgeMove, setBridgeMove] = useState({ dx: 1, dy: 0 });
@@ -135,9 +137,13 @@ function App() {
                 const api = gameApiRef.current;
                 if (!api) return;
                 setEditorTool(api.setEditorTool('block'));
+                setBlockRuleMode(api.getBlockRuleMode());
+                setBlockAllowedPlayer(api.getBlockAllowedPlayer());
               }}
             >
-              Block ({blockRequired}p)
+              {blockRuleMode === 'allowed'
+                ? `Block (Allowed P${blockAllowedPlayer + 1})`
+                : `Block (Required ${blockRequired}p)`}
             </button>
             {editorTool === 'block' && (
               <div className="block-settings">
@@ -145,47 +151,102 @@ function App() {
                 <div className="block-settings-buttons">
                   <button
                     type="button"
-                    className={blockRequired === 1 ? 'active mini' : 'mini'}
+                    className={blockRequired === 1 && blockRuleMode === 'required' ? 'active mini' : 'mini'}
                     onClick={() => {
                       const api = gameApiRef.current;
                       if (!api) return;
                       setBlockRequired(api.setBlockRequired(1));
+                      setBlockRuleMode(api.setBlockRuleMode('required'));
                     }}
                   >
                     1p
                   </button>
                   <button
                     type="button"
-                    className={blockRequired === 2 ? 'active mini' : 'mini'}
+                    className={blockRequired === 2 && blockRuleMode === 'required' ? 'active mini' : 'mini'}
                     onClick={() => {
                       const api = gameApiRef.current;
                       if (!api) return;
                       setBlockRequired(api.setBlockRequired(2));
+                      setBlockRuleMode(api.setBlockRuleMode('required'));
                     }}
                   >
                     2p
                   </button>
                   <button
                     type="button"
-                    className={blockRequired === 3 ? 'active mini' : 'mini'}
+                    className={blockRequired === 3 && blockRuleMode === 'required' ? 'active mini' : 'mini'}
                     onClick={() => {
                       const api = gameApiRef.current;
                       if (!api) return;
                       setBlockRequired(api.setBlockRequired(3));
+                      setBlockRuleMode(api.setBlockRuleMode('required'));
                     }}
                   >
                     3p
                   </button>
                   <button
                     type="button"
-                    className={blockRequired === 4 ? 'active mini' : 'mini'}
+                    className={blockRequired === 4 && blockRuleMode === 'required' ? 'active mini' : 'mini'}
                     onClick={() => {
                       const api = gameApiRef.current;
                       if (!api) return;
                       setBlockRequired(api.setBlockRequired(4));
+                      setBlockRuleMode(api.setBlockRuleMode('required'));
                     }}
                   >
                     4p
+                  </button>
+                </div>
+                <div className="block-settings-label">Allowed player</div>
+                <div className="block-settings-buttons">
+                  <button
+                    type="button"
+                    className={blockAllowedPlayer === 0 && blockRuleMode === 'allowed' ? 'active mini' : 'mini'}
+                    onClick={() => {
+                      const api = gameApiRef.current;
+                      if (!api) return;
+                      setBlockAllowedPlayer(api.setBlockAllowedPlayer(0));
+                      setBlockRuleMode(api.setBlockRuleMode('allowed'));
+                    }}
+                  >
+                    P1
+                  </button>
+                  <button
+                    type="button"
+                    className={blockAllowedPlayer === 1 && blockRuleMode === 'allowed' ? 'active mini' : 'mini'}
+                    onClick={() => {
+                      const api = gameApiRef.current;
+                      if (!api) return;
+                      setBlockAllowedPlayer(api.setBlockAllowedPlayer(1));
+                      setBlockRuleMode(api.setBlockRuleMode('allowed'));
+                    }}
+                  >
+                    P2
+                  </button>
+                  <button
+                    type="button"
+                    className={blockAllowedPlayer === 2 && blockRuleMode === 'allowed' ? 'active mini' : 'mini'}
+                    onClick={() => {
+                      const api = gameApiRef.current;
+                      if (!api) return;
+                      setBlockAllowedPlayer(api.setBlockAllowedPlayer(2));
+                      setBlockRuleMode(api.setBlockRuleMode('allowed'));
+                    }}
+                  >
+                    P3
+                  </button>
+                  <button
+                    type="button"
+                    className={blockAllowedPlayer === 3 && blockRuleMode === 'allowed' ? 'active mini' : 'mini'}
+                    onClick={() => {
+                      const api = gameApiRef.current;
+                      if (!api) return;
+                      setBlockAllowedPlayer(api.setBlockAllowedPlayer(3));
+                      setBlockRuleMode(api.setBlockRuleMode('allowed'));
+                    }}
+                  >
+                    P4
                   </button>
                 </div>
               </div>

@@ -3,9 +3,9 @@ import type { Body } from 'matter-js';
 export function drawBlock(
   ctx: CanvasRenderingContext2D,
   body: Body,
-  opts: { required?: number; pushers?: number }
+  opts: { required?: number; pushers?: number; color?: string }
 ) {
-  ctx.fillStyle = '#ff9800';
+  ctx.fillStyle = opts.color ?? '#ff9800';
   ctx.beginPath();
   ctx.moveTo(body.vertices[0].x, body.vertices[0].y);
   for (let i = 1; i < body.vertices.length; i += 1) {

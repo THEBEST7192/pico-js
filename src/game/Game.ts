@@ -59,7 +59,7 @@ type LevelState = {
   door: LevelRect | null;
   spawn: { x: number; y: number } | null;
   key: { x: number; y: number } | null;
-  blocks: Array<LevelRect & { required: number }>;
+  blocks: Array<LevelRect & { required?: number; allowedPlayer?: number }>;
   bridges: BridgeDef[];
   buttons: ButtonDef[];
   spikes: LevelRect[];
@@ -75,6 +75,10 @@ export type GameApi = {
   getEditorTool: () => EditorTool;
   setBlockRequired: (required: number) => number;
   getBlockRequired: () => number;
+  setBlockRuleMode: (mode: 'required' | 'allowed') => 'required' | 'allowed';
+  getBlockRuleMode: () => 'required' | 'allowed';
+  setBlockAllowedPlayer: (slot: number) => number;
+  getBlockAllowedPlayer: () => number;
   setLevelSize: (width: number, height: number) => LevelConfig;
   getLevelSize: () => LevelConfig;
   setBridgeMove: (dx: number, dy: number) => { dx: number; dy: number };
@@ -107,10 +111,12 @@ let levelConfig: LevelConfig = { width: 0, height: 0 };
 let boundaryBodies: Matter.Body[] = [];
 let camera = { x: 0, y: 0 };
 let editorZoom = 1;
-let blockDefs: Array<LevelRect & { required: number }> = [];
+let blockDefs: Array<LevelRect & { required?: number; allowedPlayer?: number }> = [];
 let blockBodies: Matter.Body[] = [];
 let blockPusherCounts: number[] = [];
 let blockRequired = 2;
+let blockRuleMode: 'required' | 'allowed' = 'required';
+let blockAllowedPlayer = 0;
 let bridgeDefs: BridgeDef[] = [];
 let bridgeBodies: Matter.Body[] = [];
 let bridgeActivated: boolean[] = [];
@@ -375,7 +381,8 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       return;
     }
     if (editorTool === 'block') {
-      addBlockEnt(rect, blockRequired, blockDefs, blockBodies, blockPusherCounts, engine, persistLevel);
+      const allowed = blockRuleMode === 'allowed' ? blockAllowedPlayer : null;
+      addBlockEnt(rect, blockRequired, allowed, blockDefs, blockBodies, blockPusherCounts, engine, persistLevel);
       return;
     }
     if (editorTool === 'bridge') {
@@ -609,6 +616,17 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       return blockRequired;
     },
     getBlockRequired: () => blockRequired,
+    setBlockRuleMode: (mode: 'required' | 'allowed') => {
+      blockRuleMode = mode === 'allowed' ? 'allowed' : 'required';
+      return blockRuleMode;
+    },
+    getBlockRuleMode: () => blockRuleMode,
+    setBlockAllowedPlayer: (slot: number) => {
+      const s = Math.max(0, Math.min(3, Math.round(slot)));
+      blockAllowedPlayer = s;
+      return blockAllowedPlayer;
+    },
+    getBlockAllowedPlayer: () => blockAllowedPlayer,
     setLevelSize: (width: number, height: number) => {
       const nextWidth = snap(Math.max(GRID_SIZE * 10, Math.round(width)));
       const nextHeight = snap(Math.max(GRID_SIZE * 8, Math.round(height)));
@@ -941,9 +959,13 @@ function draw() {
         if (body.label === 'block') {
           const idx = blockBodies.indexOf(body);
           const def = idx >= 0 ? blockDefs[idx] : undefined;
-          const required = def?.required;
+          const required = def?.allowedPlayer === undefined ? def?.required : undefined;
           const pushers = idx >= 0 ? blockPusherCounts[idx] ?? 0 : 0;
-          drawBlock(ctx, body, { required, pushers });
+          const color =
+            def?.allowedPlayer !== undefined && def.allowedPlayer >= 0 && def.allowedPlayer < PLAYER_COLORS.length
+              ? PLAYER_COLORS[def.allowedPlayer]
+              : undefined;
+          drawBlock(ctx, body, { required, pushers, color });
           return;
         }
         if (body.label === 'bridge') {
@@ -1391,7 +1413,8 @@ function loadLevelFromJson(json: string) {
 
   for (const b of next.blocks) {
     const rect: LevelRect = { x: b.x, y: b.y, w: b.w, h: b.h };
-    const clamped = Math.max(1, Math.min(4, Math.round(b.required)));
+    const clamped = typeof b.required === 'number' ? Math.max(1, Math.min(4, Math.round(b.required))) : undefined;
+    const allowedPlayer = typeof b.allowedPlayer === 'number' ? Math.max(0, Math.min(3, Math.round(b.allowedPlayer))) : undefined;
     const body = Bodies.rectangle(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h, {
       label: 'block',
       friction: 0,
@@ -1399,7 +1422,10 @@ function loadLevelFromJson(json: string) {
       frictionAir: 0.02,
       inertia: Infinity
     });
-    blockDefs.push({ ...rect, required: clamped });
+    const defRect: LevelRect & { required?: number; allowedPlayer?: number } = { ...rect };
+    if (allowedPlayer !== undefined) defRect.allowedPlayer = allowedPlayer;
+    else defRect.required = clamped ?? 2;
+    blockDefs.push(defRect);
     blockBodies.push(body);
     blockPusherCounts.push(0);
     Composite.add(engine.world, body);
@@ -1571,16 +1597,28 @@ function parseLevelState(input: unknown): LevelState | null {
     key = { x: k.x, y: k.y };
   }
 
-  const blocks: Array<LevelRect & { required: number }> = [];
+  const blocks: Array<LevelRect & { required?: number; allowedPlayer?: number }> = [];
   if (obj.blocks !== null && obj.blocks !== undefined) {
     if (!Array.isArray(obj.blocks)) return null;
     for (const item of obj.blocks) {
       const rect = parseRect(item);
       if (!rect) return null;
-      const b = item as { required?: unknown };
-      if (typeof b.required !== 'number') return null;
-      const required = Math.max(1, Math.min(4, Math.round(b.required)));
-      blocks.push({ ...rect, required });
+      if (!item || typeof item !== 'object') return null;
+      const b = item as { required?: unknown; allowedPlayer?: unknown };
+      let pushed = false;
+      if (typeof b.allowedPlayer === 'number') {
+        const allowedPlayer = Math.max(0, Math.min(3, Math.round(b.allowedPlayer)));
+        blocks.push({ ...rect, allowedPlayer });
+        pushed = true;
+      }
+      if (typeof b.required === 'number') {
+        const required = Math.max(1, Math.min(4, Math.round(b.required)));
+        blocks.push({ ...rect, required });
+        pushed = true;
+      }
+      if (!pushed) {
+        blocks.push({ ...rect, required: 2 });
+      }
     }
   }
 

@@ -4,7 +4,8 @@ import type { LevelRect } from '../Game';
 export function addBlock(
   rect: LevelRect,
   required: number,
-  blockDefs: Array<LevelRect & { required: number }>,
+  allowedPlayer: number | null,
+  blockDefs: Array<LevelRect & { required?: number; allowedPlayer?: number }>,
   blockBodies: Body[],
   blockPusherCounts: number[],
   engine: Engine,
@@ -18,7 +19,13 @@ export function addBlock(
     frictionAir: 0.02,
     inertia: Infinity
   });
-  blockDefs.push({ ...rect, required: clamped });
+  const def: LevelRect & { required?: number; allowedPlayer?: number } = { ...rect };
+  if (allowedPlayer !== null && Number.isFinite(allowedPlayer)) {
+    def.allowedPlayer = Math.max(0, Math.min(3, Math.round(allowedPlayer)));
+  } else {
+    def.required = clamped;
+  }
+  blockDefs.push(def);
   blockBodies.push(body);
   blockPusherCounts.push(0);
   Composite.add(engine.world, body);
@@ -28,7 +35,7 @@ export function addBlock(
 export function removeBlockBody(
   body: Body,
   blockBodies: Body[],
-  blockDefs: Array<LevelRect & { required: number }>,
+  blockDefs: Array<LevelRect & { required?: number; allowedPlayer?: number }>,
   blockPusherCounts: number[],
   engine: Engine,
   persistLevel: () => void

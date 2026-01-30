@@ -25,7 +25,7 @@ export function eraseAtPoint(
   bridgeHomeCenters: Array<{ x: number; y: number }>,
   bridgeCarryX: number[],
   blockBodies: Body[],
-  blockDefs: Array<LevelRect & { required: number }>,
+  blockDefs: Array<LevelRect & { required?: number; allowedPlayer?: number }>,
   blockPusherCounts: number[],
   spikeBodies: Body[],
   spikeRects: LevelRect[],
