@@ -31,6 +31,7 @@ export function updateBridges(
       bridgeCarryX[i] = 0;
       Matter.Body.setVelocity(body, { x: 0, y: 0 });
       Matter.Body.setAngularVelocity(body, 0);
+      body.plugin.carryX = 0;
       continue;
     }
 
@@ -76,6 +77,7 @@ export function updateBridges(
         bridgeCarryX[i] = 0;
         Matter.Body.setVelocity(body, { x: 0, y: 0 });
         Matter.Body.setAngularVelocity(body, 0);
+        body.plugin.carryX = 0;
         continue;
       }
     }
@@ -83,5 +85,6 @@ export function updateBridges(
     Matter.Body.setVelocity(body, { x: 0, y: 0 });
     Matter.Body.setAngularVelocity(body, 0);
     bridgeCarryX[i] = mx;
+    body.plugin.carryX = mx;
   }
 }

@@ -7,12 +7,13 @@ import { drawBridge } from './render/bridge';
 import { drawSpike } from './render/spike';
 import { drawPlatform } from './render/platform';
 import { drawSpawn } from './render/spawn';
-import { updateBlocks as sysUpdateBlocks } from './systems/blocks';
+import { updateBlocks as sysUpdateBlocks, initBlockCarrying } from './systems/blocks';
 import { updateButtons as sysUpdateButtons } from './systems/buttons';
 import { updateBridges as sysUpdateBridges } from './systems/bridges';
 import { updateDoor as sysUpdateDoor } from './systems/door';
 import { updateKey as sysUpdateKey } from './systems/key';
 import { updateSpikes as sysUpdateSpikes } from './systems/spikes';
+import { initPlayerCarrying } from './systems/playerCarrying';
 import { addPlatform as addPlatformEnt } from './entities/platform';
 import { addBlock as addBlockEnt } from './entities/block';
 import { addBridge as addBridgeEnt } from './entities/bridge';
@@ -24,10 +25,9 @@ import { handleButtonClick as handleButtonClickEditor } from './editor/buttons';
 import { eraseAtPoint as eraseAtPointEditor } from './editor/erase';
 import { Player } from './Player';
 
-const { Engine, Runner, Bodies, Composite } = Matter;
+const { Engine, Bodies, Composite } = Matter;
 
 let engine: Matter.Engine;
-let runner: Matter.Runner;
 let playerSlots: Array<Player | null> = [null, null, null, null];
 let canvas: HTMLCanvasElement;
 let ctx: CanvasRenderingContext2D;
@@ -181,10 +181,6 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
 
   // Create engine
   engine = Engine.create();
-  
-  // Create runner
-  runner = Runner.create();
-  Runner.run(runner, engine);
 
   rebuildBounds();
 
@@ -701,44 +697,67 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     }
   };
 
+  const cleanupCarrying = initPlayerCarrying(engine, () => playerSlots);
+  const cleanupBlockCarrying = initBlockCarrying(engine, blockBodies);
+
   // Game Loop
+  const fixedDeltaMs = 1000 / 60;
+  let lastFrameNow = performance.now();
+  let accumulatorMs = 0;
+  let rafId = 0;
+  let destroyed = false;
   const update = () => {
+    if (destroyed) return;
     updateInput();
     if (paused) {
+      lastFrameNow = performance.now();
+      accumulatorMs = 0;
       draw();
       drawPauseOverlay();
-      requestAnimationFrame(update);
+      rafId = requestAnimationFrame(update);
       return;
     }
-    checkGrounding();
-    {
-      const next = sysUpdateKey(engine, keyBody, keyCarrierSlot, playerSlots, doorUnlocked, doorBody);
-      keyBody = next.keyBody;
-      keyCarrierSlot = next.keyCarrierSlot;
-      doorUnlocked = next.doorUnlocked;
+    const now = performance.now();
+    const frameDeltaMs = Math.min(250, Math.max(0, now - lastFrameNow));
+    lastFrameNow = now;
+    accumulatorMs += frameDeltaMs;
+
+    while (accumulatorMs >= fixedDeltaMs) {
+      checkGrounding();
+      {
+        const next = sysUpdateKey(engine, keyBody, keyCarrierSlot, playerSlots, doorUnlocked, doorBody);
+        keyBody = next.keyBody;
+        keyCarrierSlot = next.keyCarrierSlot;
+        doorUnlocked = next.doorUnlocked;
+      }
+      sysUpdateButtons(buttonBodies, buttonDefs, playerSlots, blockBodies, bridgeDefs, bridgeActivated, bridgeLatched, buttonPressed);
+      sysUpdateBridges(bridgeBodies, bridgeDefs, bridgeHomeCenters, bridgeActivated, bridgeLatched, bridgeCarryX, blockBodies);
+      sysUpdateBlocks(blockBodies, blockDefs, playerSlots, blockPusherCounts, engine);
+      {
+        const next = sysUpdateDoor(doorBody, keyPoint, doorUnlocked, playerSlots, levelCompleted, completionFrames);
+        levelCompleted = next.levelCompleted;
+        completionFrames = next.completionFrames;
+      }
+      sysUpdateSpikes(spikeBodies, playerSlots, respawnAllPlayers);
+      updateCameraFollow();
+      updateEditorCameraPan();
+
+      Engine.update(engine, fixedDeltaMs);
+      accumulatorMs -= fixedDeltaMs;
     }
-    sysUpdateBlocks(blockBodies, blockDefs, playerSlots, blockPusherCounts, engine, bridgeBodies, bridgeCarryX);
-    sysUpdateButtons(buttonBodies, buttonDefs, playerSlots, blockBodies, bridgeDefs, bridgeActivated, bridgeLatched, buttonPressed);
-    sysUpdateBridges(bridgeBodies, bridgeDefs, bridgeHomeCenters, bridgeActivated, bridgeLatched, bridgeCarryX, blockBodies);
-    {
-      const next = sysUpdateDoor(doorBody, keyPoint, doorUnlocked, playerSlots, levelCompleted, completionFrames);
-      levelCompleted = next.levelCompleted;
-      completionFrames = next.completionFrames;
-    }
-    sysUpdateSpikes(spikeBodies, playerSlots, respawnAllPlayers);
-    updateCameraFollow();
-    updateEditorCameraPan();
     
     // Draw
     draw();
     
-    requestAnimationFrame(update);
+    rafId = requestAnimationFrame(update);
   };
 
-  requestAnimationFrame(update);
+  rafId = requestAnimationFrame(update);
 
   // Cleanup function
   const destroy = () => {
+    destroyed = true;
+    cancelAnimationFrame(rafId);
     window.removeEventListener("gamepadconnected", handleGamepadConnected);
     window.removeEventListener("gamepaddisconnected", handleGamepadDisconnected);
     window.removeEventListener('keydown', handleKeyDown);
@@ -748,7 +767,8 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
     canvas.removeEventListener('mouseup', handleMouseUp);
     canvas.removeEventListener('contextmenu', handleContextMenu);
     canvas.removeEventListener('wheel', handleWheel);
-    Runner.stop(runner);
+    if (cleanupCarrying) cleanupCarrying();
+    if (cleanupBlockCarrying) cleanupBlockCarrying();
     Engine.clear(engine);
     playerSlots = [null, null, null, null];
   };
@@ -964,23 +984,6 @@ function checkGrounding() {
       return other.label === 'player' && other.position.y < player.body.position.y - 5;
     });
 
-    const supportPlayer = playerContacts
-      .map(c => (c.bodyA === player.body ? c.bodyB : c.bodyA))
-      .filter(b => b.label === 'player' && b.position.y > player.body.position.y + 5)
-      .sort((a, b) => b.position.y - a.position.y)[0];
-    const bridgeBelow = belowHits.find(b => b.label === 'bridge');
-    let carryX = 0;
-    if (supportPlayer) {
-      carryX = supportPlayer.velocity.x;
-    } else if (bridgeBelow) {
-      const idx = bridgeBodies.indexOf(bridgeBelow);
-      carryX = idx >= 0 ? bridgeCarryX[idx] ?? 0 : 0;
-    }
-    if (isGrounded && bridgeBelow && carryX !== 0) {
-      Matter.Body.setPosition(player.body, { x: player.body.position.x + carryX, y: player.body.position.y });
-      Matter.Body.setVelocity(player.body, { x: player.body.velocity.x, y: player.body.velocity.y });
-      Matter.Body.setAngularVelocity(player.body, 0);
-    }
     const pushingBlock =
       blockBodies.some(b => {
         if (Matter.Query.collides(player.body, [b]).length === 0) return false;
@@ -1230,11 +1233,6 @@ function clampCamera() {
 
 function togglePause() {
   paused = !paused;
-  if (paused) {
-    Runner.stop(runner);
-  } else {
-    Runner.run(runner, engine);
-  }
 }
 
 function rebuildBounds() {

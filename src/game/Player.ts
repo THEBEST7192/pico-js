@@ -57,7 +57,7 @@ export class Player {
     const angle = this.body.angle;
 
     ctx.save();
-    ctx.translate(x, y);
+    ctx.translate(Math.round(x), Math.round(y));
     ctx.rotate(angle);
     ctx.fillStyle = this.color;
     ctx.fillRect(-20, -20, 40, 40);

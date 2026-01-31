@@ -17,7 +17,11 @@ export function drawBlock(
   const { min, max } = body.bounds;
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 3;
-  ctx.strokeRect(min.x + 2, min.y + 2, max.x - min.x - 4, max.y - min.y - 4);
+  const minX = Math.round(min.x);
+  const minY = Math.round(min.y);
+  const maxX = Math.round(max.x);
+  const maxY = Math.round(max.y);
+  ctx.strokeRect(minX + 2, minY + 2, maxX - minX - 4, maxY - minY - 4);
 
   const required = opts.required;
   const pushers = opts.pushers ?? 0;
@@ -27,7 +31,7 @@ export function drawBlock(
     ctx.font = '28px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(String(remaining), body.position.x, body.position.y);
+    ctx.fillText(String(remaining), Math.round(body.position.x), Math.round(body.position.y));
     ctx.textAlign = 'start';
     ctx.textBaseline = 'alphabetic';
   }
