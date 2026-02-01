@@ -1,17 +1,20 @@
 import Matter from 'matter-js';
 import type { Body } from 'matter-js';
-import type { LevelRect } from '../Game';
+import type { Player } from '../Player';
+import type { BridgeDef } from '../Game';
 
 export function updateBridges(
   bridgeBodies: Body[],
-  bridgeDefs: Array<LevelRect & { id: number; dx: number; dy: number; distance: number; permanent: boolean }>,
+  bridgeDefs: BridgeDef[],
   bridgeHomeCenters: Array<{ x: number; y: number }>,
   bridgeActivated: boolean[],
   bridgeLatched: boolean[],
   bridgeCarryX: number[],
-  blockBodies: Body[]
+  blockBodies: Body[],
+  playerSlots: Array<Player | null>
 ) {
   if (bridgeBodies.length === 0) return;
+  const playerBodies = playerSlots.filter((p): p is Player => Boolean(p)).map(p => p.body);
   const step = 2;
   for (let i = 0; i < bridgeBodies.length; i += 1) {
     const body = bridgeBodies[i];
@@ -19,7 +22,17 @@ export function updateBridges(
     const home = bridgeHomeCenters[i];
     if (!body || !def || !home) continue;
 
-    const active = Boolean(bridgeActivated[i]) || Boolean(bridgeLatched[i]);
+    let activeByPlayers = false;
+    if (def.requiredPlayers && def.requiredPlayers > 0 && playerBodies.length > 0) {
+      const region = {
+        min: { x: body.bounds.min.x + 4, y: body.bounds.min.y - 8 },
+        max: { x: body.bounds.max.x - 4, y: body.bounds.min.y + 6 }
+      };
+      const count = Matter.Query.region(playerBodies, region).length;
+      activeByPlayers = count >= def.requiredPlayers;
+    }
+
+    const active = Boolean(bridgeActivated[i]) || Boolean(bridgeLatched[i]) || activeByPlayers;
     const target = active
       ? { x: home.x + def.dx * def.distance, y: home.y + def.dy * def.distance }
       : home;

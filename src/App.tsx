@@ -18,6 +18,7 @@ function App() {
   const [bridgeMove, setBridgeMove] = useState({ dx: 1, dy: 0 });
   const [bridgeDistance, setBridgeDistance] = useState(200);
   const [bridgePermanent, setBridgePermanent] = useState(false);
+  const [bridgeRequiredPlayers, setBridgeRequiredPlayers] = useState(0);
 
   const downloadTextFile = (filename: string, text: string) => {
     const blob = new Blob([text], { type: 'application/json' });
@@ -60,6 +61,7 @@ function App() {
       setBridgeMove(api.getBridgeMove());
       setBridgeDistance(api.getBridgeDistance());
       setBridgePermanent(api.getBridgePermanent());
+      setBridgeRequiredPlayers(api.getBridgeRequiredPlayers());
       return () => {
         gameApiRef.current = null;
         destroy();
@@ -261,6 +263,7 @@ function App() {
                 setBridgeMove(api.getBridgeMove());
                 setBridgeDistance(api.getBridgeDistance());
                 setBridgePermanent(api.getBridgePermanent());
+                setBridgeRequiredPlayers(api.getBridgeRequiredPlayers());
               }}
             >
               Bridge
@@ -324,6 +327,20 @@ function App() {
                     const next = Number(e.target.value);
                     if (!Number.isFinite(next)) return;
                     setBridgeDistance(api.setBridgeDistance(next));
+                  }}
+                />
+                <div className="block-settings-label">Players required on elevator</div>
+                <input
+                  type="number"
+                  min={0}
+                  max={4}
+                  value={bridgeRequiredPlayers}
+                  onChange={(e) => {
+                    const api = gameApiRef.current;
+                    if (!api) return;
+                    const next = Number(e.target.value);
+                    if (!Number.isFinite(next)) return;
+                    setBridgeRequiredPlayers(api.setBridgeRequiredPlayers(next));
                   }}
                 />
                 <label className="checkbox-row">
@@ -505,6 +522,7 @@ function App() {
                 setBridgeMove(api.getBridgeMove());
                 setBridgeDistance(api.getBridgeDistance());
                 setBridgePermanent(api.getBridgePermanent());
+                setBridgeRequiredPlayers(api.getBridgeRequiredPlayers());
                 const size = api.getLevelSize();
                 setLevelWidth(size.width);
                 setLevelHeight(size.height);

@@ -6,6 +6,7 @@ export function addBridge(
   bridgeMove: { dx: number; dy: number },
   bridgeDistance: number,
   bridgePermanent: boolean,
+  bridgeRequiredPlayers: number,
   nextEntityId: number,
   bridgeDefs: BridgeDef[],
   bridgeBodies: Body[],
@@ -20,7 +21,16 @@ export function addBridge(
   const dy = bridgeMove.dy;
   const id = nextEntityId;
   const distance = bridgeDistance;
-  const def: BridgeDef = { ...rect, id, dx, dy, distance, permanent: bridgePermanent };
+  const requiredPlayers = Math.max(0, Math.min(4, Math.round(bridgeRequiredPlayers)));
+  const def: BridgeDef = {
+    ...rect,
+    id,
+    dx,
+    dy,
+    distance,
+    permanent: bridgePermanent,
+    ...(requiredPlayers > 0 ? { requiredPlayers } : {})
+  };
   const body = Bodies.rectangle(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h, {
     isStatic: true,
     label: 'bridge'

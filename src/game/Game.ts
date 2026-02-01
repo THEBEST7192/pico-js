@@ -51,7 +51,14 @@ type LevelConfig = {
 
 const CAMERA_SIZE: LevelConfig = { width: 960, height: 540 };
 
-export type BridgeDef = LevelRect & { id: number; dx: number; dy: number; distance: number; permanent: boolean };
+export type BridgeDef = LevelRect & {
+  id: number;
+  dx: number;
+  dy: number;
+  distance: number;
+  permanent: boolean;
+  requiredPlayers?: number;
+};
 export type ButtonDef = LevelRect & { id: number; targetBridgeId: number | null };
 
 type LevelState = {
@@ -88,6 +95,8 @@ export type GameApi = {
   getBridgeDistance: () => number;
   setBridgePermanent: (permanent: boolean) => boolean;
   getBridgePermanent: () => boolean;
+  setBridgeRequiredPlayers: (required: number) => number;
+  getBridgeRequiredPlayers: () => number;
   undo: () => boolean;
   redo: () => boolean;
   exportLevel: () => string;
@@ -132,6 +141,7 @@ let nextEntityId = 1;
 let bridgeMove = { dx: 1, dy: 0 };
 let bridgeDistance = 200;
 let bridgePermanent = false;
+let bridgeRequiredPlayers = 0;
 let spikeRects: LevelRect[] = [];
 let spikeBodies: Matter.Body[] = [];
 let levelCompleted = false;
@@ -403,6 +413,7 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
         bridgeMove,
         bridgeDistance,
         bridgePermanent,
+        bridgeRequiredPlayers,
         nextEntityId,
         bridgeDefs,
         bridgeBodies,
@@ -667,6 +678,13 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
       return bridgePermanent;
     },
     getBridgePermanent: () => bridgePermanent,
+    setBridgeRequiredPlayers: (required: number) => {
+      if (!Number.isFinite(required)) return bridgeRequiredPlayers;
+      const clamped = Math.max(0, Math.min(4, Math.round(required)));
+      bridgeRequiredPlayers = clamped;
+      return bridgeRequiredPlayers;
+    },
+    getBridgeRequiredPlayers: () => bridgeRequiredPlayers,
     undo: () => performUndo(),
     redo: () => performRedo(),
     exportLevel: () =>
@@ -731,7 +749,16 @@ export function initGame(canvasElement: HTMLCanvasElement): { destroy: () => voi
         doorUnlocked = next.doorUnlocked;
       }
       sysUpdateButtons(buttonBodies, buttonDefs, playerSlots, blockBodies, bridgeDefs, bridgeActivated, bridgeLatched, buttonPressed);
-      sysUpdateBridges(bridgeBodies, bridgeDefs, bridgeHomeCenters, bridgeActivated, bridgeLatched, bridgeCarryX, blockBodies);
+      sysUpdateBridges(
+        bridgeBodies,
+        bridgeDefs,
+        bridgeHomeCenters,
+        bridgeActivated,
+        bridgeLatched,
+        bridgeCarryX,
+        blockBodies,
+        playerSlots
+      );
       sysUpdateBlocks(blockBodies, blockDefs, playerSlots, blockPusherCounts, engine);
       {
         const next = sysUpdateDoor(doorBody, keyPoint, doorUnlocked, playerSlots, levelCompleted, completionFrames);
@@ -1049,8 +1076,10 @@ function draw() {
         }
         if (body.label === 'bridge') {
           const idx = bridgeBodies.indexOf(body);
-          const permanent = idx >= 0 ? Boolean(bridgeDefs[idx]?.permanent) : false;
-          drawBridge(ctx, body, permanent);
+          const def = idx >= 0 ? bridgeDefs[idx] : undefined;
+          const permanent = def ? Boolean(def.permanent) : false;
+          const requiredPlayers = def?.requiredPlayers;
+          drawBridge(ctx, body, permanent, requiredPlayers);
           return;
         }
         if (body.label === 'spike') {
@@ -1545,7 +1574,16 @@ function loadLevelFromJson(json: string) {
     const dx = Math.round(br.dx);
     const dy = Math.round(br.dy);
     const distance = snap(Math.max(0, Math.round(br.distance)));
-    const def: BridgeDef = { ...rect, id, dx, dy, distance, permanent: Boolean(br.permanent) };
+    const requiredPlayers = br.requiredPlayers;
+    const def: BridgeDef = {
+      ...rect,
+      id,
+      dx,
+      dy,
+      distance,
+      permanent: Boolean(br.permanent),
+      ...(requiredPlayers ? { requiredPlayers } : {})
+    };
     const body = Bodies.rectangle(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w, rect.h, {
       isStatic: true,
       label: 'bridge'
@@ -1726,7 +1764,14 @@ function parseLevelState(input: unknown): LevelState | null {
       const rect = parseRect(item);
       if (!rect) return null;
       if (!item || typeof item !== 'object') return null;
-      const b = item as { id?: unknown; dx?: unknown; dy?: unknown; distance?: unknown; permanent?: unknown };
+      const b = item as {
+        id?: unknown;
+        dx?: unknown;
+        dy?: unknown;
+        distance?: unknown;
+        permanent?: unknown;
+        requiredPlayers?: unknown;
+      };
       if (typeof b.id !== 'number' || typeof b.dx !== 'number' || typeof b.dy !== 'number' || typeof b.distance !== 'number') {
         return null;
       }
@@ -1736,7 +1781,11 @@ function parseLevelState(input: unknown): LevelState | null {
       if (Math.abs(dx) + Math.abs(dy) !== 1) return null;
       const distance = Math.max(0, Math.round(b.distance));
       const permanent = b.permanent === undefined ? false : Boolean(b.permanent);
-      bridges.push({ ...rect, id, dx, dy, distance, permanent });
+      let requiredPlayers: number | undefined;
+      if (typeof b.requiredPlayers === 'number') {
+        requiredPlayers = Math.max(1, Math.min(4, Math.round(b.requiredPlayers)));
+      }
+      bridges.push({ ...rect, id, dx, dy, distance, permanent, ...(requiredPlayers ? { requiredPlayers } : {}) });
     }
   }
 
