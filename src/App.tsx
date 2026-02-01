@@ -266,7 +266,9 @@ function App() {
                 setBridgeRequiredPlayers(api.getBridgeRequiredPlayers());
               }}
             >
-              Bridge
+              {bridgeRequiredPlayers > 0
+                ? `Bridge/elevator (${bridgeRequiredPlayers}p)`
+                : 'Bridge/elevator'}
             </button>
             {editorTool === 'bridge' && (
               <div className="bridge-settings">
