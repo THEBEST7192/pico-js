@@ -32,6 +32,7 @@ export function updateBridges(
       Matter.Body.setVelocity(body, { x: 0, y: 0 });
       Matter.Body.setAngularVelocity(body, 0);
       body.plugin.carryX = 0;
+      body.plugin.carryY = 0;
       continue;
     }
 
@@ -73,11 +74,15 @@ export function updateBridges(
       if (horizontal && obstructors.length > 0) {
         obstructors = obstructors.filter(b => b.bounds.max.y > body.bounds.min.y + tol);
       }
+      if (!horizontal && my < 0 && obstructors.length > 0) {
+        obstructors = obstructors.filter(b => Math.abs(b.bounds.max.y - body.bounds.min.y) > tol);
+      }
       if (obstructors.length > 0) {
         bridgeCarryX[i] = 0;
         Matter.Body.setVelocity(body, { x: 0, y: 0 });
         Matter.Body.setAngularVelocity(body, 0);
         body.plugin.carryX = 0;
+        body.plugin.carryY = 0;
         continue;
       }
     }
@@ -86,5 +91,6 @@ export function updateBridges(
     Matter.Body.setAngularVelocity(body, 0);
     bridgeCarryX[i] = mx;
     body.plugin.carryX = mx;
+    body.plugin.carryY = my;
   }
 }

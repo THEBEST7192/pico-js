@@ -140,11 +140,15 @@ export function initBlockCarrying(engine: Engine, blockBodies: Body[]) {
     const allBodies = Composite.allBodies(engine.world);
     const supportLabels = new Set(['ground', 'platform', 'bridge', 'block', 'player']);
 
-    for (const body of blockBodies) {
+    const sortedBlocks = [...blockBodies].sort((a, b) => b.position.y - a.position.y);
+
+    for (const body of sortedBlocks) {
       if (!body.isStatic) {
         const b = body as unknown as BodyWithPrev;
-        const delta = b.position.x - b.positionPrev.x;
-        body.plugin.carryX = Math.abs(delta) > 0.01 ? delta : 0;
+        const deltaX = b.position.x - b.positionPrev.x;
+        const deltaY = b.position.y - b.positionPrev.y;
+        body.plugin.carryX = Math.abs(deltaX) > 0.01 ? deltaX : 0;
+        body.plugin.carryY = Math.abs(deltaY) > 0.01 ? deltaY : 0;
         body.plugin.supportId = undefined;
         body.plugin.supportOffsetX = undefined;
         continue;
@@ -168,7 +172,8 @@ export function initBlockCarrying(engine: Engine, blockBodies: Body[]) {
       belowBodies.sort((a, b) => b.position.y - a.position.y);
       const support = belowBodies[0];
       let targetX = body.position.x;
-      let carry = 0;
+      let carryX = 0;
+      let carryY = 0;
       if (support.label === 'block') {
         const supportId = support.id;
         const hasSameSupport = body.plugin.supportId === supportId;
@@ -179,29 +184,66 @@ export function initBlockCarrying(engine: Engine, blockBodies: Body[]) {
           body.plugin.supportOffsetX = offset;
         }
         targetX = hasSameSupport ? support.position.x + offset : body.position.x;
-        carry = targetX - body.position.x;
+        carryX = targetX - body.position.x;
+        carryY = support.plugin.carryY || 0;
       } else {
         body.plugin.supportId = undefined;
         body.plugin.supportOffsetX = undefined;
         const s = support as unknown as BodyWithPrev;
         if (support.label === 'bridge') {
-          carry = support.plugin.carryX || 0;
+          carryX = support.plugin.carryX || 0;
+          carryY = support.plugin.carryY || 0;
         } else {
-          carry = support.isStatic ? support.plugin.carryX || 0 : s.position.x - s.positionPrev.x;
+          if (support.isStatic) {
+            carryX = support.plugin.carryX || 0;
+            carryY = support.plugin.carryY || 0;
+          } else {
+            carryX = s.position.x - s.positionPrev.x;
+            carryY = s.position.y - s.positionPrev.y;
+          }
         }
-        targetX = body.position.x + carry;
       }
 
-      if (Math.abs(carry) > 0.0001) {
-        Matter.Body.setPosition(body, { x: targetX, y: body.position.y });
+      if (Math.abs(carryX) > 0.0001) {
+        const tol = 4;
+        const checkWidth = Math.abs(carryX) + 2;
+        const isRight = carryX > 0;
+        const region = {
+          min: {
+            x: isRight ? body.bounds.max.x : body.bounds.min.x - checkWidth,
+            y: body.bounds.min.y + tol
+          },
+          max: {
+            x: isRight ? body.bounds.max.x + checkWidth : body.bounds.min.x,
+            y: body.bounds.max.y - tol
+          }
+        };
+
+        const obstacles = allBodies.filter(
+          b =>
+            b !== body &&
+            b !== support &&
+            !b.isSensor &&
+            (b.label === 'ground' || b.label === 'platform' || b.label === 'block')
+        );
+
+        if (Query.region(obstacles, region).length > 0) {
+          carryX = 0;
+        }
+      }
+
+      if (Math.abs(carryX) > 0.0001 || Math.abs(carryY) > 0.0001) {
+        Matter.Body.setPosition(body, { x: body.position.x + carryX, y: body.position.y + carryY });
         Matter.Body.setVelocity(body, { x: 0, y: body.velocity.y });
         Matter.Body.setAngularVelocity(body, 0);
         const b = body as unknown as BodyWithPrev;
         b.positionPrev.x = b.position.x;
         b.positionPrev.y = b.position.y;
-        body.plugin.carryX = carry;
+        body.plugin.carryX = carryX;
+        body.plugin.carryY = carryY;
       } else {
         body.plugin.carryX = 0;
+        body.plugin.carryY = 0;
       }
     }
   };

@@ -15,7 +15,6 @@ export function initPlayerCarrying(
     for (const player of playerSlots) {
       if (!player) continue;
 
-      // Check what's below the player
       const regionBelow = {
         min: { x: player.body.bounds.min.x + 5, y: player.body.bounds.max.y + 1 },
         max: { x: player.body.bounds.max.x - 5, y: player.body.bounds.max.y + 6 }
@@ -43,7 +42,32 @@ export function initPlayerCarrying(
       }
 
       if (Math.abs(carry) > 0.01) {
-          // Move player manually to follow support
+          const tol = 4;
+          const checkWidth = Math.abs(carry) + 2;
+          const isRight = carry > 0;
+          const region = {
+              min: {
+                  x: isRight ? player.body.bounds.max.x : player.body.bounds.min.x - checkWidth,
+                  y: player.body.bounds.min.y + tol
+              },
+              max: {
+                  x: isRight ? player.body.bounds.max.x + checkWidth : player.body.bounds.min.x,
+                  y: player.body.bounds.max.y - tol
+              }
+          };
+
+          const obstacles = allBodies.filter(b =>
+              b !== player.body &&
+              !b.isSensor &&
+              (b.label === 'ground' || b.label === 'platform' || b.label === 'block')
+          );
+
+          if (Query.region(obstacles, region).length > 0) {
+              carry = 0;
+          }
+      }
+
+      if (Math.abs(carry) > 0.01) {
           Matter.Body.setPosition(player.body, { 
               x: player.body.position.x + carry, 
               y: player.body.position.y 
