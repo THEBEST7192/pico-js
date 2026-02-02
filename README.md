@@ -27,3 +27,19 @@ Linting
 
 Fiks lint-feil
 - npm run ling
+
+## Ressurser
+
+Designressurser brukt i prosjektet er lisensiert under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+### Grafikk
+
+**[Xbox Controller Icons Free](https://www.figma.com/community/file/1271153059120916114/xbox-controller-icons-free)**
+- **Skaper:** [Alric Monteiro](https://www.figma.com/@alricmonteiro)
+- **Lisens:** [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+- **Link:** [Fil på Figma Community](https://www.figma.com/community/file/1271153059120916114)
+
+**[PlayStation Controller Icons](https://www.figma.com/community/file/968584708653901737/playstation-controller-icons)**
+- **Skaper:** [Antoine Plu](https://www.figma.com/@antoineplu)
+- **Lisens:** [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+- **Link:** [Fil på Figma Community](https://www.figma.com/community/file/968584708653901737)
